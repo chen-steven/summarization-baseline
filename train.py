@@ -10,7 +10,6 @@ import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 from datasets import load_dataset, load_metric
 
-import transformers
 from filelock import FileLock
 from transformers import (
     AutoConfig,
@@ -25,15 +24,11 @@ from transformers import (
     default_data_collator,
     set_seed,
 )
-from transformers.trainer_utils import get_last_checkpoint, is_main_process
-
 
 with FileLock(".lock") as lock:
     nltk.download("punkt", quiet=True)
 
-
 logger = logging.getLogger(__name__)
-
 
 def save_json(content, path, indent=4, **json_dump_kwargs):
     with open(path, "w") as f:
@@ -398,9 +393,7 @@ def main():
     else:
         data_collator = DataCollatorForSeq2Seq(
             tokenizer,
-            model=model,
             label_pad_token_id=label_pad_token_id,
-            pad_to_multiple_of=8 if training_args.fp16 else None,
         )
 
     # Metric
