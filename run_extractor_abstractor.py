@@ -47,6 +47,7 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from models.extractor_abstractor import ExtractorAbstractorT5
+from trainers.extractor_abstractor_trainer import ExtractorAbstractorTrainer
 
 
 with FileLock(".lock") as lock:
@@ -576,7 +577,7 @@ def main():
         return result
 
     # Initialize our Trainer
-    trainer = Seq2SeqTrainer(
+    trainer = ExtractorAbstractorTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
