@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import utils
 
+
 class ExtractorAbstractorT5(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
@@ -146,3 +147,11 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             encoder_hidden_states=encoder_outputs.hidden_states,
             encoder_attentions=encoder_outputs.attentions,
         )
+
+    def prepare_inputs_for_generation(
+            self, input_ids, decoder_sentence_indicator=None, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
+    ):
+        # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
+        res = super().prepare_inputs_for_generaetion(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
+        res['sentence_indicator'] = decoder_sentence_indicator
+        return res

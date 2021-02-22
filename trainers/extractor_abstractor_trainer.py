@@ -41,7 +41,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         inputs = self._prepare_inputs(inputs)
 
         gen_kwargs = {
-            "sentence_indicator": inputs['sentence_indicator'],
+            "decoder_sentence_indicator": inputs['sentence_indicator'],
             "max_length": self._max_length if self._max_length is not None else self.model.config.max_length,
             "num_beams": self._num_beams if self._num_beams is not None else self.model.config.num_beams,
         }
@@ -77,3 +77,4 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
             labels = self._pad_tensors_to_max_len(labels, gen_kwargs["max_length"])
 
         return (loss, generated_tokens, labels)
+
