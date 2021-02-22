@@ -447,14 +447,16 @@ def main():
         inputs = [prefix + inp for inp in inputs]
 
         sentence_indicator = []
-        new_input = [f" {tokenizer.sep_token_id} ".join(nltk.sent_tokenize(inp)) for inp in inputs]
+        sep_token = "</s>"
+        sep_token_id = 1
+        new_input = [f" {sep_token} ".join(nltk.sent_tokenize(inp)) for inp in inputs]
         model_inputs = tokenizer(new_input, max_length=data_args.max_source_length, padding="max_length", truncation=True)
         for cur_input_id in model_inputs['input_ids']:
             sent_count = 0
             cur_indicator = [0]*len(cur_input_id)
             for i, ids in enumerate(cur_input_id):
                 cur_indicator[i] = sent_count
-                if ids == tokenizer.sep_token_id:
+                if ids == 1:
                     sent_count += 1
             sentence_indicator.append(cur_indicator)
 
@@ -471,6 +473,7 @@ def main():
 
         model_inputs["labels"] = labels["input_ids"]
         model_inputs['sentence_indicator'] = sentence_indicator
+
         return model_inputs
 
     if training_args.do_train:

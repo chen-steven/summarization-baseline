@@ -511,7 +511,7 @@ def main():
     else:
         data_collator = DataCollatorForSeq2Seq(
             tokenizer,
-            model=model,
+#            model=model,
             label_pad_token_id=label_pad_token_id,
             pad_to_multiple_of=8 if training_args.fp16 else None,
         )

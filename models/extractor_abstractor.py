@@ -55,17 +55,16 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
 
         # extract salient sentences
         sentences = []
-        for i in range(1, sentence_indicator.max()):
+        for i in range(sentence_indicator.max()+1):
             mask = (sentence_indicator == i).long().cuda()
             sentences.append(
                 torch.sum(hidden_states * mask.unsqueeze(-1), dim=1) / (mask.sum(dim=1).view(-1, 1) + 1e-12))
 
         sentences = torch.stack(sentences, dim=1)
-        sentence_logits = self.sentence_classifier(sentences)
+        sentence_logits = self.sentence_classifier(sentences).squeeze(-1)
         gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)
-        #new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
-        #masked_hidden_states = new_attention_mask * new_attention_mask
-
+        new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
+        masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
@@ -100,8 +99,8 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             past_key_values=past_key_values,
-            encoder_hidden_states=hidden_states,
-            encoder_attention_mask=attention_mask,
+            encoder_hidden_states=masked_hidden_states,
+            encoder_attention_mask=new_attention_mask,
             head_mask=decoder_head_mask,
             encoder_head_mask=head_mask,
             use_cache=use_cache,
