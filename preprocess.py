@@ -4,7 +4,7 @@ from datasets import load_dataset
 from nltk import sent_tokenize
 from rouge_score import rouge_scorer
 from tqdm import tqdm
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoTokenizer, PreTrainedTokenizerBase, PreTrainedModel
 import json
 from typing import Any, Callable, Dict, List, NewType, Optional, Tuple, Union
 import multiprocess as mp
@@ -42,7 +42,7 @@ class DataCollatorForExtractorAbstractor:
     """
 
     tokenizer: PreTrainedTokenizerBase
-    model:
+    model: Optional[PreTrainedModel] = None
     padding: Union[bool, str, PaddingStrategy] = True
     max_length: Optional[int] = None
     pad_to_multiple_of: Optional[int] = None
