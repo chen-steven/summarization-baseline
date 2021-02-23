@@ -48,7 +48,7 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from models.extractor_abstractor import ExtractorAbstractorT5
 from trainers.extractor_abstractor_trainer import ExtractorAbstractorTrainer
-
+from preprocess import DataCollatorForExtractorAbstractor
 
 with FileLock(".lock") as lock:
     nltk.download("punkt", quiet=True)
@@ -536,10 +536,11 @@ def main():
     if data_args.pad_to_max_length:
         data_collator = default_data_collator
     else:
-        data_collator = DataCollatorForSeq2Seq(
+        data_collator = DataCollatorForExtractorAbstractor(
             tokenizer,
             model=model,
             label_pad_token_id=label_pad_token_id,
+            sentence_label_pad_id=-1,
             pad_to_multiple_of=8 if training_args.fp16 else None,
         )
 
