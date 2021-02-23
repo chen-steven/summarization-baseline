@@ -64,10 +64,17 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
 
         sentences = torch.stack(sentences, dim=1)
         sentence_logits = self.sentence_classifier(sentences)
-#        gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
-        gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)[:, :, 1]
+
+        if self.training:
+            gumbel_output = utils.convert_one_hot(sentence_labels, sentence_logits.size(1))
+        else:
+            #gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
+            gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)[:, :, 1]
+
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
+
+        #create sentence mask using
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
@@ -132,6 +139,11 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+
+            sentence_loss_fct = nn.BCEWithLogitsLoss()
+            #convert sentence_label to one_hot vector with the same size as the sentence logits
+            #compute loss
+
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
 
         if not return_dict:
@@ -151,9 +163,10 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
         )
 
     def prepare_inputs_for_generation(
-            self, input_ids, decoder_sentence_indicator=None, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
+            self, input_ids, decoder_sentence_indicator=None, decoder_sentence_labels=None, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
     ):
         # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
         res = super().prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
         res['sentence_indicator'] = decoder_sentence_indicator
+        res['sentence_labels'] = decoder_sentence_labels
         return res

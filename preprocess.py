@@ -68,9 +68,8 @@ def preprocess_cnn(args):
     val_data = dataset['validation']
     test_data = dataset['test']
 
-    print(type(test_data))
     examples = test_data
-    print(type(examples))
+
     num_splits = 4
     split = len(test_data)//num_splits
     #data = [examples[:split], examples[split:2*split], examples[2*split:3*split], examples[3*split:4*split]]

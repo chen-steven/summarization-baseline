@@ -20,3 +20,9 @@ def gumbel_softmax_topk(logits, k, tau=1, hard=False, dim=-1):
         # Reparametrization trick.
         ret = y_soft
     return ret
+
+def convert_one_hot(tensor, size):
+    one_hot = torch.zeros(tensor.size(0), size)
+    one_hot = one_hot.scatter(1, tensor, 1)
+    return one_hot
+

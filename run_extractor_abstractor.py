@@ -103,7 +103,10 @@ class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
-
+    sentence_label_dir: str = field(
+        default="data",
+        metadata={"help": "The directory storing sentence labels for training an extractive summarizer."}
+    )
     task: str = field(
         default="summarization",
         metadata={
@@ -437,45 +440,54 @@ def main():
             "label_smoothing is enabled but the `prepare_decoder_input_ids_from_labels` method is not defined for"
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
+    def get_preprocess_function(split="train"):
+        def preprocess_function(examples):
+            if data_args.task.startswith("translation"):
+                inputs = [ex[source_lang] for ex in examples["translation"]]
+                targets = [ex[target_lang] for ex in examples["translation"]]
+            else:
+                inputs = examples[text_column]
+                targets = examples[summary_column]
+                ids = examples['id']
+            inputs = [prefix + inp for inp in inputs]
 
-    def preprocess_function(examples):
-        if data_args.task.startswith("translation"):
-            inputs = [ex[source_lang] for ex in examples["translation"]]
-            targets = [ex[target_lang] for ex in examples["translation"]]
-        else:
-            inputs = examples[text_column]
-            targets = examples[summary_column]
-        inputs = [prefix + inp for inp in inputs]
+            sentence_label_map = json.load(open(os.path.join(data_args.sentence_label_dir, f'{split}_sentence_labels.json'), 'r'))
+            sentence_labels = [sentence_label_map[i] for i in ids]
 
-        sentence_indicator = []
-        sep_token = "</s>"
-        sep_token_id = 1
-        new_input = [f" {sep_token} ".join(nltk.sent_tokenize(inp)) for inp in inputs]
-        model_inputs = tokenizer(new_input, max_length=data_args.max_source_length, padding="max_length", truncation=True)
-        for cur_input_id in model_inputs['input_ids']:
-            sent_count = 0
-            cur_indicator = [0]*len(cur_input_id)
-            for i, ids in enumerate(cur_input_id):
-                cur_indicator[i] = sent_count
-                if ids == 1:
-                    sent_count += 1
-            sentence_indicator.append(cur_indicator)
+            sentence_indicator = []
+            sep_token = "</s>"
+            sep_token_id = 1
+            new_input = [f" {sep_token} ".join(nltk.sent_tokenize(inp)) for inp in inputs]
+            model_inputs = tokenizer(new_input, max_length=data_args.max_source_length, padding="max_length", truncation=True)
 
-        # Setup the tokenizer for targets
-        with tokenizer.as_target_tokenizer():
-            labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
+            for idx, cur_input_id in enumerate(model_inputs['input_ids']):
+                sent_count = 0
+                cur_indicator = [0]*len(cur_input_id)
+                for i, ids in enumerate(cur_input_id):
+                    cur_indicator[i] = sent_count
+                    if ids == 1:
+                        sent_count += 1
 
-        # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-        # padding in the loss.
-        if padding == "max_length" and data_args.ignore_pad_token_for_loss:
-            labels["input_ids"] = [
-                [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-            ]
+                sentence_labels[idx] = [x for x in sentence_labels[idx] if x < sent_count]
+                sentence_indicator.append(cur_indicator)
 
-        model_inputs["labels"] = labels["input_ids"]
-        model_inputs['sentence_indicator'] = sentence_indicator
+            # Setup the tokenizer for targets
+            with tokenizer.as_target_tokenizer():
+                labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
 
-        return model_inputs
+            # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
+            # padding in the loss.
+            if padding == "max_length" and data_args.ignore_pad_token_for_loss:
+                labels["input_ids"] = [
+                    [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+                ]
+
+            model_inputs["labels"] = labels["input_ids"]
+            model_inputs['sentence_indicator'] = sentence_indicator
+            model_inputs['sentence_labels'] = sentence_labels
+
+            return model_inputs
+        return preprocess_function
 
     if training_args.do_train:
         train_dataset = datasets["train"]
@@ -484,7 +496,7 @@ def main():
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
         train_dataset = train_dataset.map(
-            preprocess_function,
+            get_preprocess_function("train"),
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             remove_columns=column_names,
@@ -499,7 +511,7 @@ def main():
         if data_args.max_val_samples is not None:
             eval_dataset = eval_dataset.select(range(data_args.max_val_samples))
         eval_dataset = eval_dataset.map(
-            preprocess_function,
+            get_preprocess_function("val"),
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             remove_columns=column_names,
@@ -514,7 +526,7 @@ def main():
         if data_args.max_test_samples is not None:
             test_dataset = test_dataset.select(range(data_args.max_test_samples))
         test_dataset = test_dataset.map(
-            preprocess_function,
+            get_preprocess_function("test"),
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             remove_columns=column_names,
