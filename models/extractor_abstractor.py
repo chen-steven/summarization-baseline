@@ -9,7 +9,7 @@ import utils
 class ExtractorAbstractorT5(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
-        self.sentence_classifier = nn.Linear(config.d_model, 1)
+        self.sentence_classifier = nn.Linear(config.d_model, 2)
 
     def forward(
             self,
@@ -63,9 +63,9 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
                 torch.sum(hidden_states * mask.unsqueeze(-1), dim=1) / (mask.sum(dim=1).view(-1, 1) + 1e-12))
 
         sentences = torch.stack(sentences, dim=1)
-        sentence_logits = self.sentence_classifier(sentences).squeeze(-1)
-        gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
-#        gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)
+        sentence_logits = self.sentence_classifier(sentences)
+#        gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
+        gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)[:, :, 1]
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
