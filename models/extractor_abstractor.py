@@ -16,6 +16,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             input_ids=None,
             attention_mask=None,
             sentence_indicator=None,
+            sentence_labels=None,
             decoder_input_ids=None,
             decoder_attention_mask=None,
             head_mask=None,
