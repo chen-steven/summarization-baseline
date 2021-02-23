@@ -4,6 +4,7 @@ from rouge_score import rouge_scorer
 from tqdm import tqdm
 from transformers import AutoTokenizer
 import json
+import multiprocess as mp
 
 def _one_example(source, target, scorer, metric, tokenizer, max_length=200):
     # source = source.replace("|||", ' ')
@@ -48,19 +49,18 @@ def transform_dataset(examples, tokenizer):
     targets = examples['highlights']
     ids = examples['id']
 
+
     scorer = rouge_scorer.RougeScorer(['rouge1'], use_stemmer=True)
     sentence_indices = []
     for _id, inp, target in tqdm(zip(ids, inputs,targets)):
         indices = _one_example(inp, target, scorer, 'rouge1', tokenizer)
         sentence_labels[_id] = indices
 
-    json.dump(sentence_labels, open('test_sentence_labels.json', 'w'))
+    print(len(sentence_labels))
+    return sentence_labels
 
 
-
-
-
-def preprocess_cnn():
+def preprocess_cnn(args):
     tokenizer = AutoTokenizer.from_pretrained('t5-small')
     dataset = load_dataset('cnn_dailymail', "3.0.0")
 
@@ -68,7 +68,23 @@ def preprocess_cnn():
     val_data = dataset['validation']
     test_data = dataset['test']
 
-    transform_dataset(test_data, tokenizer)
+    print(type(test_data))
+    examples = test_data
+    print(type(examples))
+    num_splits = 4
+    split = len(test_data)//num_splits
+    #data = [examples[:split], examples[split:2*split], examples[2*split:3*split], examples[3*split:4*split]]
+
+    pool = mp.Pool(processes=4)
+    results = [pool.apply_async(transform_dataset, args=(examples[i*split:(i+1)*split], tokenizer)) for i in range(num_splits)]
+    outputs = [p.get() for p in results]
+    d = {}
+    for x in outputs:
+        d = {**d, **x}
+    json.dump(d, open('test_sentence_labels.json', 'w'))
+
+
+    #transform_dataset(args, test_data, tokenizer)
 
 
 # def oracle(source, target, output, max_length=200):
@@ -94,4 +110,8 @@ def preprocess_cnn():
 #     print(best)
 
 if __name__ == '__main__':
-    preprocess_cnn()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--split', type=int, default=1)
+    args = parser.parse_args()
+    preprocess_cnn(args)
