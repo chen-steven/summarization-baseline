@@ -459,14 +459,16 @@ def main():
             sep_token_id = 1
             new_input = [f" {sep_token} ".join(nltk.sent_tokenize(inp)) for inp in inputs]
             model_inputs = tokenizer(new_input, max_length=data_args.max_source_length, padding="max_length", truncation=True)
-            for i, cur_input_id in enumerate(model_inputs['input_ids']):
+
+            for idx, cur_input_id in enumerate(model_inputs['input_ids']):
                 sent_count = 0
                 cur_indicator = [0]*len(cur_input_id)
                 for i, ids in enumerate(cur_input_id):
                     cur_indicator[i] = sent_count
                     if ids == 1:
                         sent_count += 1
-                sentence_labels[i] = [x for x in sentence_labels[i] if x < sent_count]
+
+                sentence_labels[idx] = [x for x in sentence_labels[idx] if x < sent_count]
                 sentence_indicator.append(cur_indicator)
 
             # Setup the tokenizer for targets
