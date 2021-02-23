@@ -63,7 +63,8 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
 
         sentences = torch.stack(sentences, dim=1)
         sentence_logits = self.sentence_classifier(sentences).squeeze(-1)
-        gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)
+        gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
+#        gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
@@ -152,6 +153,6 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             self, input_ids, decoder_sentence_indicator=None, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
     ):
         # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
-        res = super().prepare_inputs_for_generaetion(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
+        res = super().prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
         res['sentence_indicator'] = decoder_sentence_indicator
         return res
