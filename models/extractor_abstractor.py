@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import utils
+from models.outputs import ExtractorAbstractorOutput
 
 
 class ExtractorAbstractorT5(T5ForConditionalGeneration):
@@ -64,6 +65,8 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
 
         sentences = torch.stack(sentences, dim=1)
         sentence_logits = self.sentence_classifier(sentences)
+
+        sentence_label_one_hot = utils.convert_one_hot(sentence_labels, sentence_logits.size(1)).detach()
 
         if self.training:
             gumbel_output = utils.convert_one_hot(sentence_labels, sentence_logits.size(1))
@@ -143,6 +146,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             sentence_loss_fct = nn.BCEWithLogitsLoss()
             #convert sentence_label to one_hot vector with the same size as the sentence logits
             #compute loss
+            loss += sentence_loss_fct(sentence_logits, sentence_label_one_hot.float())
 
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
 
@@ -150,7 +154,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
             return ((loss,) + output) if loss is not None else output
 
-        return Seq2SeqLMOutput(
+        return ExtractorAbstractorOutput(
             loss=loss,
             logits=lm_logits,
             past_key_values=decoder_outputs.past_key_values,
@@ -160,6 +164,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             encoder_last_hidden_state=encoder_outputs.last_hidden_state,
             encoder_hidden_states=encoder_outputs.hidden_states,
             encoder_attentions=encoder_outputs.attentions,
+            gumbel_output=gumbel_output
         )
 
     def prepare_inputs_for_generation(
