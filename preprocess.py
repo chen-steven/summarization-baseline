@@ -52,6 +52,7 @@ class DataCollatorForExtractorAbstractor:
     def __call__(self, features):
         labels = [feature["labels"] for feature in features] if "labels" in features[0].keys() else None
         sentence_labels = [feature["sentence_labels"] for feature in features]
+        sentence_indicators = [feature['sentence_indicator'] for feature in features]
         # We have to pad the labels before calling `tokenizer.pad` as this method won't pad them and needs them of the
         # same length to return tensors.
         if labels is not None:
@@ -63,10 +64,15 @@ class DataCollatorForExtractorAbstractor:
                     feature["labels"] + remainder if padding_side == "right" else remainder + feature["labels"]
                 )
 
-        max_sentence_label_length = max(len(l) for l in sentence_labels)
-        sentence_pad_id = max(l[-1] for l in sentence_labels)+1
+        max_sentence_indicator_length = max(len(l) for l in sentence_indicators)
         for feature in features:
-            remainder = [sentence_pad_id] * (max_sentence_label_length - len(feature['sentence_labels']))
+            remainder = [feature['sentence_indicator'][-1]]*(max_sentence_indicator_length - len(feature['sentence_indicator']))
+            feature['sentence_indicator'] = feature['sentence_indicator'] + remainder
+        max_sentence_label_length = max(len(l) for l in sentence_labels)
+#        sentence_indicators = [feature['sentence_indicator'] for feature in features]
+#        sentence_pad_id = max(l[-1] for l in sentence_indicators)
+        for feature in features:
+            remainder = [self.sentence_label_pad_id] * (max_sentence_label_length - len(feature['sentence_labels']))
             feature['sentence_labels'] = feature['sentence_labels'] + remainder
 
         features = self.tokenizer.pad(

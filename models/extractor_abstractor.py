@@ -66,11 +66,15 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
         sentence_logits = self.sentence_classifier(sentences)
 
         if self.training:
+            print(sentence_labels)
+            print(sentence_logits.size())
             gumbel_output = utils.convert_one_hot(sentence_labels, sentence_logits.size(1))
         else:
-            #gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
-            gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)[:, :, 1]
+            gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
+        gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)[:, :, 1]
 
+#        print(sentence_labels)
+ #       print(gumbel_output)
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
