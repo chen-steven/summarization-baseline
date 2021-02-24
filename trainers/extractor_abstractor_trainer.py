@@ -1,10 +1,15 @@
+from torch.utils.data import DataLoader
 from transformers import Seq2SeqTrainer, is_torch_tpu_available, EvalPrediction
 import torch
 import torch.nn as nn
 from typing import Any, Dict, List, Optional, Tuple, Union
 from packaging import version
-from transformers.trainer_pt_utils import DistributedTensorGatherer
+from transformers.trainer_pt_utils import DistributedTensorGatherer, nested_concat
 from transformers.trainer_utils import PredictionOutput
+import logging
+import collections
+
+logger = logging.getLogger(__name__)
 
 if version.parse(torch.__version__) >= version.parse("1.6"):
     from torch.cuda.amp import autocast
@@ -16,7 +21,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
             inputs: Dict[str, Union[torch.Tensor, Any]],
             prediction_loss_only: bool,
             ignore_keys: Optional[List[str]] = None,
-    ) -> Tuple[Optional[float], Optional[torch.Tensor], Optional[torch.Tensor]]:
+    ):
         """
         Perform an evaluation step on :obj:`model` using obj:`inputs`.
         Subclass and override to inject custom behavior.
@@ -79,7 +84,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         if labels.shape[-1] < gen_kwargs["max_length"]:
             labels = self._pad_tensors_to_max_len(labels, gen_kwargs["max_length"])
 
-        sentence_labels = inputs['sentnece_labels']
+        sentence_labels = inputs['sentence_labels']
         gumbel_output = outputs.gumbel_output
 
         return (loss, generated_tokens, labels, sentence_labels, gumbel_output)
@@ -122,6 +127,8 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         losses_host: torch.Tensor = None
         preds_host: Union[torch.Tensor, List[torch.Tensor]] = None
         labels_host: Union[torch.Tensor, List[torch.Tensor]] = None
+        gumbel_host = Union[torch.Tensor, List[torch.Tensor]] = None
+        sentence_labels_host = Union[torch.Tensor, List[torch.Tensor]] = None
 
         world_size = 1
         if is_torch_tpu_available():
@@ -134,11 +141,10 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         if not prediction_loss_only:
             preds_gatherer = DistributedTensorGatherer(world_size, num_examples)
             labels_gatherer = DistributedTensorGatherer(world_size, num_examples)
+            gumbel_gatherer = DistributedTensorGatherer(world_size, num_examples)
+            sentence_labels_gatherer = DistributedTensorGatherer(world_size, num_examples)
 
         model.eval()
-
-        if is_torch_tpu_available():
-            dataloader = pl.ParallelLoader(dataloader, [self.args.device]).per_device_loader(self.args.device)
 
         if self.args.past_index >= 0:
             self._past = None
@@ -146,7 +152,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         self.callback_handler.eval_dataloader = dataloader
 
         for step, inputs in enumerate(dataloader):
-            loss, logits, labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+            loss, logits, labels, gumbel_output, sentence_labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
             if loss is not None:
                 losses = loss.repeat(batch_size)
                 losses_host = losses if losses_host is None else torch.cat((losses_host, losses), dim=0)
@@ -154,6 +160,10 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
                 preds_host = logits if preds_host is None else nested_concat(preds_host, logits, padding_index=-100)
             if labels is not None:
                 labels_host = labels if labels_host is None else nested_concat(labels_host, labels, padding_index=-100)
+            if gumbel_output is not None:
+                gumbel_host = gumbel_output if gumbel_host is None else nested_concat(gumbel_host, gumbel_output, padding_index=-100)
+            if sentence_labels is not None:
+                sentence_labels_host = sentence_labels_host if sentence_labels_host is None else nested_concat(sentence_labels_host, sentence_labels, padding_index=-1)
             self.control = self.callback_handler.on_prediction_step(self.args, self.state, self.control)
 
             # Gather all tensors and put them back on the CPU if we have done enough accumulation steps.
@@ -162,9 +172,11 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
                 if not prediction_loss_only:
                     preds_gatherer.add_arrays(self._gather_and_numpify(preds_host, "eval_preds"))
                     labels_gatherer.add_arrays(self._gather_and_numpify(labels_host, "eval_label_ids"))
+                    gumbel_gatherer.add_arrays(self._gather_and_numpify(gumbel_host, "eval_gumbel_output"))
+                    sentence_labels_gatherer.add_arrays(self._gather_and_numpify(sentence_labels_host, "eval_sentence_idxs"))
 
                 # Set back to None to begin a new accumulation
-                losses_host, preds_host, labels_host = None, None, None
+                losses_host, preds_host, labels_host, gumbel_host, sentence_labels_host = None, None, None, None, None
 
         if self.args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of the evaluation loop
@@ -175,13 +187,17 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         if not prediction_loss_only:
             preds_gatherer.add_arrays(self._gather_and_numpify(preds_host, "eval_preds"))
             labels_gatherer.add_arrays(self._gather_and_numpify(labels_host, "eval_label_ids"))
+            gumbel_gatherer.add_arrays(self._gather_and_numpify(gumbel_host, "eval_gumbel_output"))
+            sentence_labels_gatherer.add_arrays(self._gather_and_numpify(sentence_labels_host, "eval_sentence_idxs"))
 
         eval_loss = eval_losses_gatherer.finalize()
         preds = preds_gatherer.finalize() if not prediction_loss_only else None
         label_ids = labels_gatherer.finalize() if not prediction_loss_only else None
+        gumbel_outputs = gumbel_gatherer.finalize() if not prediction_loss_only else None
+        sentence_idxs = sentence_labels_gatherer.finalize() if not prediction_loss_only else None
 
         if self.compute_metrics is not None and preds is not None and label_ids is not None:
-            metrics = self.compute_metrics(EvalPrediction(predictions=preds, label_ids=label_ids))
+            metrics = self.compute_metrics(preds, label_ids, gumbel_outputs, sentence_idxs)
         else:
             metrics = {}
 

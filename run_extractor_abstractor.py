@@ -49,6 +49,7 @@ from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from models.extractor_abstractor import ExtractorAbstractorT5
 from trainers.extractor_abstractor_trainer import ExtractorAbstractorTrainer
 from preprocess import DataCollatorForExtractorAbstractor
+from models.metrics import ExtractionScorer
 
 with FileLock(".lock") as lock:
     nltk.download("punkt", quiet=True)
@@ -563,8 +564,7 @@ def main():
 
         return preds, labels
 
-    def compute_metrics(eval_preds):
-        preds, labels = eval_preds
+    def compute_metrics(preds, labels, gumbel_output, sentence_labels):
         if isinstance(preds, tuple):
             preds = preds[0]
         decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
@@ -583,6 +583,10 @@ def main():
         else:
             result = metric.compute(predictions=decoded_preds, references=decoded_labels)
             result = {"bleu": result["score"]}
+
+        extraction_scorer = ExtractionScorer()
+        extraction_score = extraction_scorer.compute_metric(gumbel_output, sentence_labels)
+        result = {**result, **extraction_score}
 
         prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
         result["gen_len"] = np.mean(prediction_lens)

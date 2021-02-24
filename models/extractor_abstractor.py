@@ -148,8 +148,6 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
 
             sentence_loss_fct = nn.BCEWithLogitsLoss()
-            #convert sentence_label to one_hot vector with the same size as the sentence logits
-            #compute loss
             loss += sentence_loss_fct(sentence_logits, sentence_label_one_hot.float())
 
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
