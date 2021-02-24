@@ -64,8 +64,9 @@ class DataCollatorForExtractorAbstractor:
                 )
 
         max_sentence_label_length = max(len(l) for l in sentence_labels)
+        sentence_pad_id = max(l[-1] for l in sentence_labels)+1
         for feature in features:
-            remainder = [self.sentence_label_pad_id] * (max_sentence_label_length - len(feature['sentence_labels']))
+            remainder = [sentence_pad_id] * (max_sentence_label_length - len(feature['sentence_labels']))
             feature['sentence_labels'] = feature['sentence_labels'] + remainder
 
         features = self.tokenizer.pad(

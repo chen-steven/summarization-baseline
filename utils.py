@@ -21,8 +21,8 @@ def gumbel_softmax_topk(logits, k, tau=1, hard=False, dim=-1):
         ret = y_soft
     return ret
 
-def convert_one_hot(tensor, size):
-    one_hot = torch.zeros(tensor.size(0), size)
+def convert_one_hot(tensor, size, includes_pad=True):
+    one_hot = torch.zeros(tensor.size(0), size + 1 if includes_pad else size).cuda()
     one_hot = one_hot.scatter(1, tensor, 1)
-    return one_hot
+    return one_hot[:, :-1] if includes_pad else one_hot
 
