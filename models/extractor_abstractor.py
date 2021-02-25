@@ -10,7 +10,7 @@ from models.outputs import ExtractorAbstractorOutput
 class ExtractorAbstractorT5(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
-        self.sentence_classifier = nn.Linear(config.d_model, 2)
+        self.sentence_classifier = nn.Linear(config.d_model, 1)
 
     def forward(
             self,
@@ -65,19 +65,21 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
 
         sentences = torch.stack(sentences, dim=1)
         sentence_logits = self.sentence_classifier(sentences)
+#        sentence_logits = utils.mask_sentences(sentence_logits, sentence_indicator)
 
-        sentence_label_one_hot = utils.convert_one_hot(sentence_labels, sentence_logits.size(1)).detach()
+    
+        sentence_label_one_hot = utils.convert_one_hot(sentence_labels, sentence_logits.size(1)).float().detach()
 
         if self.training:
-            print(sentence_labels)
-            print(sentence_logits.size())
             gumbel_output = utils.convert_one_hot(sentence_labels, sentence_logits.size(1))
         else:
-            gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
-        gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)[:, :, 1]
+            #gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
+#            gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)[:, :, 1]
+            #gumbel_output = utils.convert_one_hot(sentence_labels, sentence_logits.size(1))
+#            gumbel_output = torch.argmax(sentence_logits, -1)
+            gumbel_output = (torch.sigmoid(sentence_logits) > 0.5).float().squeeze(-1)
 
-#        print(sentence_labels)
- #       print(gumbel_output)
+
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
@@ -146,10 +148,14 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
-
             sentence_loss_fct = nn.BCEWithLogitsLoss()
-            loss += sentence_loss_fct(sentence_logits, sentence_label_one_hot.float())
+            loss = 0
+#            sentence_mask = utils.get_sentence_mask(sentence_indicator, sentence_logits.size(1))
+            
+#            loss += 2*sentence_loss_fct(sentence_logits.squeeze(-1)[sentence_mask], sentence_label_one_hot[sentence_mask])
+            loss += 2 * -torch.mean(torch.sum(sentence_label_one_hot*torch.log_softmax(sentence_logits.squeeze(-1), dim=-1), dim=-1))
 
+#            loss += 2*loss_fct(sentence_logits.view(-1, sentence_logits.size(-1)), sentence_label_one_hot.view(-1))
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
 
         if not return_dict:
@@ -166,7 +172,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             encoder_last_hidden_state=encoder_outputs.last_hidden_state,
             encoder_hidden_states=encoder_outputs.hidden_states,
             encoder_attentions=encoder_outputs.attentions,
-            gumbel_output=gumbel_output
+            gumbel_output=None if self.training else gumbel_output
         )
 
     def prepare_inputs_for_generation(

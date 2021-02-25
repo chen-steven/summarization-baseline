@@ -62,7 +62,11 @@ def save_json(content, path, indent=4, **json_dump_kwargs):
     with open(path, "w") as f:
         json.dump(content, f, indent=indent, sort_keys=True, **json_dump_kwargs)
 
-
+@dataclass
+class ExtractorAbstractorTrainingArguments(Seq2SeqTrainingArguments):
+    extractor_only: Optional[bool] = field(
+        default=False, metadata={"help": "Flag for training only the extractor"}
+        )
 @dataclass
 class ModelArguments:
     """
@@ -465,9 +469,9 @@ def main():
                 sent_count = 0
                 cur_indicator = [0]*len(cur_input_id)
                 for i, ids in enumerate(cur_input_id):
-                    cur_indicator[i] = sent_count
-                    if ids == 1:
+                    if ids == sep_token_id:
                         sent_count += 1
+                    cur_indicator[i] = sent_count
 
                 sentence_labels[idx] = [x for x in sentence_labels[idx] if x < sent_count]
                 sentence_indicator.append(cur_indicator)

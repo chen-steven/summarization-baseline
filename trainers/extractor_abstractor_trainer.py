@@ -87,7 +87,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         sentence_labels = inputs['sentence_labels']
         gumbel_output = outputs.gumbel_output
 
-        return (loss, generated_tokens, labels, sentence_labels, gumbel_output)
+        return (loss, generated_tokens, labels, gumbel_output, sentence_labels)
 
     def prediction_loop(
             self,
@@ -112,12 +112,15 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
             # flagging only for when --do_train wasn't passed as only then it's redundant
             logger.info("Detected the deepspeed argument but it will not be used for evaluation")
 
-        model = self._wrap_model(self.model, training=False)
+        model = self.model
+        # multi-gpu eval
+        if self.args.n_gpu > 1:
+            model = torch.nn.DataParallel(model)
+            # Note: in torch.distributed mode, there's no point in wrapping the model
+            # inside a DistributedDataParallel as we'll be under `no_grad` anyways
 
         # if full fp16 is wanted on eval and this ``evaluation`` or ``predict`` isn't called while
         # ``train`` is running, half it first and then put on device
-        if not self.is_in_train and self.args.fp16_full_eval:
-            model = model.half().to(self.args.device)
 
         batch_size = dataloader.batch_size
         num_examples = self.num_examples(dataloader)
@@ -127,8 +130,8 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         losses_host: torch.Tensor = None
         preds_host: Union[torch.Tensor, List[torch.Tensor]] = None
         labels_host: Union[torch.Tensor, List[torch.Tensor]] = None
-        gumbel_host = Union[torch.Tensor, List[torch.Tensor]] = None
-        sentence_labels_host = Union[torch.Tensor, List[torch.Tensor]] = None
+        gumbel_host: Union[torch.Tensor, List[torch.Tensor]] = None
+        sentence_labels_host: Union[torch.Tensor, List[torch.Tensor]] = None
 
         world_size = 1
         if is_torch_tpu_available():
@@ -153,6 +156,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
 
         for step, inputs in enumerate(dataloader):
             loss, logits, labels, gumbel_output, sentence_labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+
             if loss is not None:
                 losses = loss.repeat(batch_size)
                 losses_host = losses if losses_host is None else torch.cat((losses_host, losses), dim=0)
@@ -161,9 +165,10 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
             if labels is not None:
                 labels_host = labels if labels_host is None else nested_concat(labels_host, labels, padding_index=-100)
             if gumbel_output is not None:
-                gumbel_host = gumbel_output if gumbel_host is None else nested_concat(gumbel_host, gumbel_output, padding_index=-100)
+                gumbel_host = gumbel_output if gumbel_host is None else nested_concat(gumbel_host, gumbel_output, padding_index=-1)
             if sentence_labels is not None:
-                sentence_labels_host = sentence_labels_host if sentence_labels_host is None else nested_concat(sentence_labels_host, sentence_labels, padding_index=-1)
+                sentence_labels_host = sentence_labels if sentence_labels_host is None else nested_concat(sentence_labels_host, sentence_labels, padding_index=-1)
+
             self.control = self.callback_handler.on_prediction_step(self.args, self.state, self.control)
 
             # Gather all tensors and put them back on the CPU if we have done enough accumulation steps.
@@ -195,6 +200,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         label_ids = labels_gatherer.finalize() if not prediction_loss_only else None
         gumbel_outputs = gumbel_gatherer.finalize() if not prediction_loss_only else None
         sentence_idxs = sentence_labels_gatherer.finalize() if not prediction_loss_only else None
+        print(sentence_idxs, 'test')
 
         if self.compute_metrics is not None and preds is not None and label_ids is not None:
             metrics = self.compute_metrics(preds, label_ids, gumbel_outputs, sentence_idxs)
