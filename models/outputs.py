@@ -6,3 +6,4 @@ import torch
 @dataclass
 class ExtractorAbstractorOutput(Seq2SeqLMOutput):
     gumbel_output: torch.FloatTensor = None
+    extracted_attentions: torch.FloatTensor=None

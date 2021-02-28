@@ -555,6 +555,13 @@ def main():
     metric_name = "rouge" if data_args.task.startswith("summarization") else "sacrebleu"
     metric = load_metric(metric_name)
 
+    def _postprocess(preds):
+        preds = [pred.strip() for pred in preds]
+        if metric_name == "rouge":
+            preds=["\n".join(nltk.sent_tokenize(pred)) for pred in preds]
+
+        return preds
+
     def postprocess_text(preds, labels):
         preds = [pred.strip() for pred in preds]
         labels = [label.strip() for label in labels]
@@ -568,10 +575,11 @@ def main():
 
         return preds, labels
 
-    def compute_metrics(preds, labels, gumbel_output, sentence_labels):
+    def compute_metrics(preds, labels, gumbel_output, sentence_labels, extracted_sentences):
         if isinstance(preds, tuple):
             preds = preds[0]
         decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        decoded_extracted_preds = tokenizer.batch_decode(extracted_sentences, skip_special_tokens=True)
         if data_args.ignore_pad_token_for_loss:
             # Replace -100 in the labels as we can't decode them.
             labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
@@ -579,17 +587,27 @@ def main():
 
         # Some simple post-processing
         decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+        decoded_extracted_preds = _postprocess(decoded_extracted_preds)
 
         if metric_name == "rouge":
             result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
             # Extract a few results from ROUGE
+            
+            print(decoded_extracted_preds[:3])
+            extraction_results = metric.compute(predictions=decoded_extracted_preds, references=decoded_labels, use_stemmer=True)
+            extraction_results = {"extraction_"+key: value for key,value in extraction_results.items()}
+            result = {**result, **extraction_results}
             result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
         else:
             result = metric.compute(predictions=decoded_preds, references=decoded_labels)
+#            extraction_results = metric.compute(predictions=decoded_extracted_preds, references=decoded_labels, use_stemmer=True)
+#            extraction_results = {"extraction_"+key: value for key, value in extraction_results.items()}
+#            result = {**result, **extraction_results}
             result = {"bleu": result["score"]}
 
         extraction_scorer = ExtractionScorer()
         extraction_score = extraction_scorer.compute_metric(gumbel_output, sentence_labels)
+#        extraction_rouge_score = extraction_scorer.compute_extraction_rouge(gumbel_output,
         result = {**result, **extraction_score}
 
         prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]

@@ -86,8 +86,13 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
 
         sentence_labels = inputs['sentence_labels']
         gumbel_output = outputs.gumbel_output
+        sentence_indicator = inputs['sentence_indicator']
+        extracted_attentions = outputs.extracted_attentions.long()
+        extracted_tokens = inputs['input_ids']*extracted_attentions + (1-extracted_attentions)*self.tokenizer.pad_token_id
+        
+        
 
-        return (loss, generated_tokens, labels, gumbel_output, sentence_labels)
+        return (loss, generated_tokens, labels, gumbel_output, sentence_labels, extracted_tokens)
 
     def prediction_loop(
             self,
@@ -132,6 +137,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         labels_host: Union[torch.Tensor, List[torch.Tensor]] = None
         gumbel_host: Union[torch.Tensor, List[torch.Tensor]] = None
         sentence_labels_host: Union[torch.Tensor, List[torch.Tensor]] = None
+        sentence_indicator_host: Union[torch.Tensor, List[torch.Tensor]] = None
 
         world_size = 1
         if is_torch_tpu_available():
@@ -146,6 +152,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
             labels_gatherer = DistributedTensorGatherer(world_size, num_examples)
             gumbel_gatherer = DistributedTensorGatherer(world_size, num_examples)
             sentence_labels_gatherer = DistributedTensorGatherer(world_size, num_examples)
+            sentence_indicator_gatherer = DistributedTensorGatherer(world_size, num_examples)
 
         model.eval()
 
@@ -155,7 +162,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
         self.callback_handler.eval_dataloader = dataloader
 
         for step, inputs in enumerate(dataloader):
-            loss, logits, labels, gumbel_output, sentence_labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+            loss, logits, labels, gumbel_output, sentence_labels, sentence_indicator = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
 
             if loss is not None:
                 losses = loss.repeat(batch_size)
@@ -168,6 +175,8 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
                 gumbel_host = gumbel_output if gumbel_host is None else nested_concat(gumbel_host, gumbel_output, padding_index=-1)
             if sentence_labels is not None:
                 sentence_labels_host = sentence_labels if sentence_labels_host is None else nested_concat(sentence_labels_host, sentence_labels, padding_index=-1)
+            if sentence_indicator is not None:
+                sentence_indicator_host = sentence_indicator if sentence_indicator_host is None else nested_concat(sentence_indicator_host, sentence_indicator, padding_index=-100)
 
             self.control = self.callback_handler.on_prediction_step(self.args, self.state, self.control)
 
@@ -179,9 +188,10 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
                     labels_gatherer.add_arrays(self._gather_and_numpify(labels_host, "eval_label_ids"))
                     gumbel_gatherer.add_arrays(self._gather_and_numpify(gumbel_host, "eval_gumbel_output"))
                     sentence_labels_gatherer.add_arrays(self._gather_and_numpify(sentence_labels_host, "eval_sentence_idxs"))
+                    sentence_indicator_gatherer.add_arrays(self._gather_and_numpify(sentence_indicator_host, "eval_sentence_indicator"))
 
                 # Set back to None to begin a new accumulation
-                losses_host, preds_host, labels_host, gumbel_host, sentence_labels_host = None, None, None, None, None
+                losses_host, preds_host, labels_host, gumbel_host, sentence_labels_host, sentence_indicator_host = None, None, None, None, None, None
 
         if self.args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of the evaluation loop
@@ -194,16 +204,18 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
             labels_gatherer.add_arrays(self._gather_and_numpify(labels_host, "eval_label_ids"))
             gumbel_gatherer.add_arrays(self._gather_and_numpify(gumbel_host, "eval_gumbel_output"))
             sentence_labels_gatherer.add_arrays(self._gather_and_numpify(sentence_labels_host, "eval_sentence_idxs"))
+            sentence_indicator_gatherer.add_arrays(self._gather_and_numpify(sentence_indicator_host, "eval_sentence_indicator"))
 
         eval_loss = eval_losses_gatherer.finalize()
         preds = preds_gatherer.finalize() if not prediction_loss_only else None
         label_ids = labels_gatherer.finalize() if not prediction_loss_only else None
         gumbel_outputs = gumbel_gatherer.finalize() if not prediction_loss_only else None
         sentence_idxs = sentence_labels_gatherer.finalize() if not prediction_loss_only else None
+        sentence_indicators = sentence_indicator_gatherer.finalize() if not prediction_loss_only else None
         print(sentence_idxs, 'test')
 
         if self.compute_metrics is not None and preds is not None and label_ids is not None:
-            metrics = self.compute_metrics(preds, label_ids, gumbel_outputs, sentence_idxs)
+            metrics = self.compute_metrics(preds, label_ids, gumbel_outputs, sentence_idxs, sentence_indicators)
         else:
             metrics = {}
 
