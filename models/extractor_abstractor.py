@@ -15,6 +15,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
     def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
         combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
         combined_len = cur_len.unsqueeze(1) + sentence_lens
+
         pooled_embeddings = combined_sentence_embeddings / combined_len
         sentence_logits = self.sentence_classifier(pooled_embeddings).squeeze(-1)
         sentence_logits = utils.mask_tensor(sentence_logits, sentence_mask.detach())
@@ -50,18 +51,21 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             sentence_lens.append(sentence_len)
 
         sentences = torch.stack(sentences, dim=1)
-        sentence_lens = torch.stack(sentence_lens, dim=-1)
+        sentence_lens = torch.stack(sentence_lens, dim=1)
+        sentence_lens = sentence_lens.clamp(min=1)
+#        zero_len_mask = sentence_lens == 0
+#        sentence_lens = sentence_lens + zero_len_mask.float()
 
-        cur_embedding = torch.zeros(sentences.size(0), sentences.size(-1))
-        cur_len = torch.zeros(sentence_lens.size(0), sentence_lens.size(-1))
+        cur_embedding = torch.zeros(sentences.size(0), sentences.size(-1)).cuda()
+        cur_len = torch.zeros(sentence_lens.size(0), sentence_lens.size(-1)).cuda()
 
-        selected_one_hot = torch.zeros(sentences.size(0), sentences.size(1))
-        sentence_mask = 1-utils.get_sentence_mask(sentence_indicator, sentences.size(1))
+        selected_one_hot = torch.zeros(sentences.size(0), sentences.size(1)).cuda()
+        sentence_mask = utils.get_sentence_mask(sentence_indicator, sentences.size(1)).float()
 
-        for i in range(len(self.config.extraction_k)):
+        for i in range(self.config.extraction_k):
             sentence_logits, cur_embedding, cur_len, sentence_mask, one_hot = self.selection_step(cur_embedding,
                                                                                                   cur_len,
-                                                                                                  sentence_lens,
+                                                                                                  sentences,
                                                                                                   sentence_lens,
                                                                                                   sentence_mask,
                                                                                                   sentence_labels[:, i] if sentence_labels is not None else None)

@@ -69,6 +69,7 @@ class DataCollatorForExtractorAbstractor:
             remainder = [feature['sentence_indicator'][-1]]*(max_sentence_indicator_length - len(feature['sentence_indicator']))
             feature['sentence_indicator'] = feature['sentence_indicator'] + remainder
         max_sentence_label_length = max(len(l) for l in sentence_labels)
+        max_sentence_label_length = max(max_sentence_label_length, 5)
 #        sentence_indicators = [feature['sentence_indicator'] for feature in features]
 #        sentence_pad_id = max(l[-1] for l in sentence_indicators)
         for feature in features:

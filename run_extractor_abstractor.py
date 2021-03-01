@@ -67,6 +67,7 @@ class ExtractorAbstractorTrainingArguments(Seq2SeqTrainingArguments):
     extractor_only: Optional[bool] = field(
         default=False, metadata={"help": "Flag for training only the extractor"}
         )
+
 @dataclass
 class ModelArguments:
     """
@@ -107,14 +108,17 @@ class ModelArguments:
             "help": "Use teacher forcing for extraction step"
         }
     )
-    extraction_k: bool = field(
-        default=False,
+    extraction_k: int = field(
+        default=5,
         metadata={
             "help": "Number of sentences to extract. Used as k for gumbel top k or indicates the number of sequential "
                     "selection steps. "
         }
     )
-
+    sequential_extraction: Optional[bool] = field(
+        default=False, metadata={"help": "Flag for performing sequential evidence extraction as opposed to single step extraction"}
+    )
+    
 
 @dataclass
 class DataTrainingArguments:
@@ -279,7 +283,7 @@ def main():
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ExtractorAbstractorTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -382,7 +386,8 @@ def main():
 
     #set model config from args
     model.config.teacher_forcing = model_args.teacher_forcing
-    model.config.extraction_k = model.args.extraction_k
+    model.config.extraction_k = model_args.extraction_k
+    model.config.sequential_extraction = model_args.sequential_extraction
 
     # Set decoder_start_token_id
     if model.config.decoder_start_token_id is None and isinstance(tokenizer, (MBartTokenizer, MBartTokenizerFast)):
@@ -492,12 +497,12 @@ def main():
 
                 sentence_labels[idx] = [x for x in sentence_labels[idx] if x < sent_count]
 
-                sep_ids = [x for x in cur_input_id if x == sep_token_id][:-1] # exclude last sep token
+#                sep_ids = [x for x in cur_input_id if x == sep_token_id][:-1] # exclude last sep token
 
                 # remove temp sep tokens
-                for i in sep_ids[::-1]:
-                    del cur_input_id[i]
-                    del cur_indicator[i]
+ #               for i in sep_ids[::-1]:
+ #                   del cur_input_id[i]
+ #                   del cur_indicator[i]
 
                 sentence_indicator.append(cur_indicator)
 
