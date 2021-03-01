@@ -101,6 +101,19 @@ class ModelArguments:
             "with private models)."
         },
     )
+    teacher_forcing: bool = field(
+        default=False,
+        metadata={
+            "help": "Use teacher forcing for extraction step"
+        }
+    )
+    extraction_k: bool = field(
+        default=False,
+        metadata={
+            "help": "Number of sentences to extract. Used as k for gumbel top k or indicates the number of sequential "
+                    "selection steps. "
+        }
+    )
 
 
 @dataclass
@@ -367,6 +380,10 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
 
+    #set model config from args
+    model.config.teacher_forcing = model_args.teacher_forcing
+    model.config.extraction_k = model.args.extraction_k
+
     # Set decoder_start_token_id
     if model.config.decoder_start_token_id is None and isinstance(tokenizer, (MBartTokenizer, MBartTokenizerFast)):
         assert (
@@ -474,6 +491,14 @@ def main():
                     cur_indicator[i] = sent_count
 
                 sentence_labels[idx] = [x for x in sentence_labels[idx] if x < sent_count]
+
+                sep_ids = [x for x in cur_input_id if x == sep_token_id][:-1] # exclude last sep token
+
+                # remove temp sep tokens
+                for i in sep_ids[::-1]:
+                    del cur_input_id[i]
+                    del cur_indicator[i]
+
                 sentence_indicator.append(cur_indicator)
 
             # Setup the tokenizer for targets

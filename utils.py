@@ -21,6 +21,19 @@ def gumbel_softmax_topk(logits, k, tau=1, hard=False, dim=-1):
         ret = y_soft
     return ret
 
+def convert_single_one_hot(tensor, size, pad_id=-1):
+    one_hot = torch.zeros(*tensor.size(), size+1)
+    one_hot = one_hot.reshape(-1, one_hot.size(-1))
+
+    max_val = size
+    mask = (tensor == pad_id).long()
+    src = tensor*(1-mask)+mask*max_val
+    src = src.reshape(-1, 1)
+    one_hot = one_hot.scatter(1, src, 1)[:, :-1].reshape(*tensor.size(), size)
+    return one_hot
+
+
+
 def convert_one_hot(tensor, size, pad_id=-1):
     one_hot = torch.zeros(tensor.size(0), size+1).cuda()
     max_val = size
@@ -43,4 +56,7 @@ def get_sentence_mask(sentence_indicator, num_sentences):
     m, _ = sentence_indicator.max(-1)
     m = m.unsqueeze(-1)
     return idxs < m
-    
+
+if __name__ == '__main__':
+    tensor = torch.tensor([[1,5,-1,-1,-1], [2,3,8, -1, -1]])
+    print(convert_single_one_hot(tensor[:,2], 9))
