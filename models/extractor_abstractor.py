@@ -232,6 +232,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
                 loss += 2 * -torch.mean(torch.sum(
                     sentence_label_one_hot * torch.log_softmax(sentence_logits.squeeze(-1), dim=-1),
                     dim=-1))
+
 #               loss += 2*sentence_loss_fct(sentence_logits.squeeze(-1)[sentence_mask], sentence_label_one_hot[sentence_mask])
 #               loss += 2*loss_fct(sentence_logits.view(-1, sentence_logits.size(-1)), sentence_label_one_hot.view(-1))
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666

@@ -16,7 +16,7 @@ class ExtractionScorer:
     def _set_match(self, pred, gt):
         return set([int(x) for x in pred]) == set([int(x) for x in gt])
 
-    def postprocess(self, gumbel_outputs, sentence_labels):
+    def _postprocess(self, gumbel_outputs, sentence_labels):
         predictions = [[idx for idx, x in enumerate(gumbel) if x == 1] for gumbel in gumbel_outputs]
         sentence_idxs = [[x for x in label if x != self.ignore_idx] for label in sentence_labels]
         return predictions, sentence_idxs
@@ -25,7 +25,7 @@ class ExtractionScorer:
         d = Counter()
         total = 0
         if postprocess:
-            predictions, sentence_idxs = postprocess(gumbel_outputs, sentence_labels)
+            predictions, sentence_idxs = self._postprocess(gumbel_outputs, sentence_labels)
         else:
             predictions = gumbel_outputs
             sentence_idxs = sentence_labels
