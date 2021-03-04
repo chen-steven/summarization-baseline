@@ -497,12 +497,14 @@ def main():
 
                 sentence_labels[idx] = [x for x in sentence_labels[idx] if x < sent_count]
 
-#                sep_ids = [x for x in cur_input_id if x == sep_token_id][:-1] # exclude last sep token
+                sep_ids = [x for x in cur_input_id if x == sep_token_id][:-1] # exclude last sep token
 
                 # remove temp sep tokens
- #               for i in sep_ids[::-1]:
- #                   del cur_input_id[i]
- #                   del cur_indicator[i]
+                for i in sep_ids[::-1]:
+                    del cur_input_id[i]
+                    del cur_indicator[i]
+                    cur_input_id.append(tokenizer.pad_token_id)
+                    cur_indicator.append(sent_count)
 
                 sentence_indicator.append(cur_indicator)
 
