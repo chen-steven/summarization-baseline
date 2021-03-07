@@ -70,7 +70,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
                                                                                                   sentence_mask,
                                                                                                   sentence_labels[:, i] if sentence_labels is not None else None)
             selected_one_hot = selected_one_hot + one_hot
-            all_sentence_logits.append(sentence_logits)
+#            all_sentence_logits.append(sentence_logits)
         selected_one_hot = selected_one_hot.clamp(max=1)
         return selected_one_hot, all_sentence_logits
 
@@ -225,8 +225,8 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
 
             if self.config.sequential_extraction:
                 sentence_loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
-                for i, logits in enumerate(all_sentence_logits):
-                    loss += sentence_loss_fct(logits, sentence_labels[:, i])
+#                for i, logits in enumerate(all_sentence_logits):
+#                    loss += sentence_loss_fct(logits, sentence_labels[:, i])
             else:
                 sentence_label_one_hot = utils.convert_one_hot(sentence_labels, sentence_logits.size(1)).float().detach()
                 loss += 2 * -torch.mean(torch.sum(

@@ -1,4 +1,4 @@
-from transformers import T5ForConditionalGeneration
+from transformers import T5ForConditionalGeneration, AutoTokenizer
 from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 import torch
 import torch.nn as nn
@@ -11,26 +11,32 @@ Use gumbel softmax to decode unsupervised summary
 Use original input labels for reconstruction with hidden states
 '''
 
-class ExtractorAbstractorT5(T5ForConditionalGeneration):
+class UnsupervisedExtractorAbstractorT5(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
         self.sentence_classifier = nn.Linear(config.d_model, 1)
+        self.tokenizer = AutoTokenizer.from_pretrained('t5-small')
 
     def greedy_decode(self, input_ids, encoder_hidden_states, encoder_attention_mask):
         input_ids = self._prepare_decoder_input_ids_for_generation(input_ids, decoder_start_token_id=self.config.decoder_start_token_id)
         cur_len = 0
-        while cur_len < 200:
+        while cur_len < 100:
             decoder_outputs = self.decoder(
                 input_ids=input_ids,
                 attention_mask=None,
                 encoder_hidden_states=encoder_hidden_states,
                 encoder_attention_mask=encoder_attention_mask,
             )
-
-            next_token_logits = decoder_outputs.logits[:, -1, :]
+            sequence_output = decoder_outputs[0]
+            logits = self.lm_head(sequence_output)
+            next_token_logits = logits[:, -1, :]
             gumbel = F.gumbel_softmax(next_token_logits, hard=True, dim=-1)
-            indices = torch.arange(gumbel.size(1)).unsqueeze(0)
-            input_ids = torch.cat((input_ids, indices), dim=-1)
+            indices = torch.arange(gumbel.size(1)).unsqueeze(0).cuda()
+
+            new_tokens = (gumbel*indices).long().sum(-1)[:,None]
+#            new_tokens = torch.argmax(next_token_logits, dim=-1)[:,None]
+            input_ids = torch.cat((input_ids, new_tokens), dim=-1)
+            cur_len += 1
 
         return input_ids
 
@@ -186,7 +192,8 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
 
-        reconstruction_decoder_input_ids = self._shift_right(input_ids)
+        if self.training:
+            reconstruction_decoder_input_ids = self._shift_right(input_ids)
 
         # If decoding with past key value states, only the last tokens
         # should be given as an input
@@ -224,10 +231,11 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             return_dict=return_dict,
         )
 
-        
-        summary = self.greedy_decode(input_ids, masked_hidden_states, new_attention_mask)
+        if self.training:
+            summary = self.greedy_decode(input_ids, masked_hidden_states, new_attention_mask)
+            encoded_summary = self.get_encoder()(summary, attention_mask=(summary != 0).long())
 
-        reconstruction_decoder_output = self.decoder(
+            reconstruction_decoder_output = self.decoder(
             input_ids=reconstruction_decoder_input_ids,
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
@@ -242,7 +250,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             return_dict=return_dict,
         )
 
-        sequence_output = decoder_outputs[0]
+        sequence_output = reconstruction_decoder_output[0] if self.training else decoder_outputs[0]
 
         # Set device for model parallelism
         if self.model_parallel:
@@ -261,19 +269,28 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
         loss = None
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+            labels = input_ids*attention_mask + (-100)*(1-attention_mask)
+
+            if self.training:
+                loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+
+                sim_loss_fct = nn.CosineSimilarity()
+                
+                loss -= (sim_loss_fct(hidden_states.mean(1), encoded_summary[0].mean(1))).mean()
+            else:
+                loss = torch.tensor(0.).cuda()
 #            sentence_loss_fct = nn.BCEWithLogitsLoss()
 #            loss = 0
 
-            if self.config.sequential_extraction:
-                sentence_loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
-                for i, logits in enumerate(all_sentence_logits):
-                    loss += sentence_loss_fct(logits, sentence_labels[:, i])
-            else:
-                sentence_label_one_hot = utils.convert_one_hot(sentence_labels, sentence_logits.size(1)).float().detach()
-                loss += 2 * -torch.mean(torch.sum(
-                    sentence_label_one_hot * torch.log_softmax(sentence_logits.squeeze(-1), dim=-1),
-                    dim=-1))
+#            if self.config.sequential_extraction:
+#                sentence_loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+#                for i, logits in enumerate(all_sentence_logits):
+#                    loss += sentence_loss_fct(logits, sentence_labels[:, i])
+#            else:
+#                sentence_label_one_hot = utils.convert_one_hot(sentence_labels, sentence_logits.size(1)).float().detach()
+#                loss += 2 * -torch.mean(torch.sum(
+#                    sentence_label_one_hot * torch.log_softmax(sentence_logits.squeeze(-1), dim=-1),
+#                    dim=-1))
 #               loss += 2*sentence_loss_fct(sentence_logits.squeeze(-1)[sentence_mask], sentence_label_one_hot[sentence_mask])
 #               loss += 2*loss_fct(sentence_logits.view(-1, sentence_logits.size(-1)), sentence_label_one_hot.view(-1))
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666

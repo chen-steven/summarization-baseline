@@ -47,6 +47,7 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from models.extractor_abstractor import ExtractorAbstractorT5
+from models.unsupervised_extractor_abstractor import UnsupervisedExtractorAbstractorT5
 from trainers.extractor_abstractor_trainer import ExtractorAbstractorTrainer
 from preprocess import DataCollatorForExtractorAbstractor
 from models.metrics import ExtractionScorer
@@ -117,6 +118,12 @@ class ModelArguments:
     )
     sequential_extraction: Optional[bool] = field(
         default=False, metadata={"help": "Flag for performing sequential evidence extraction as opposed to single step extraction"}
+    )
+    unsupervised_ext_abs: bool = field(
+        default=False,
+        metadata={
+            "help": "Use unsupervised training pipeline"
+            }
     )
     
 
@@ -375,7 +382,9 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    model = ExtractorAbstractorT5.from_pretrained(
+
+    model_cls = UnsupervisedExtractorAbstractorT5 if model_args.unsupervised_ext_abs else ExtractorAbstractorT5
+    model = model_cls.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
