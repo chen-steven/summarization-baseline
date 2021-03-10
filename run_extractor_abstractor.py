@@ -633,7 +633,9 @@ def main():
         if metric_name == "rouge":
             result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
             # Extract a few results from ROUGE
-            
+            print('***** Abstractive *****')
+            print(decoded_preds[:3])
+            print('***** Extractive *****')
             print(decoded_extracted_preds[:3])
             extraction_results = metric.compute(predictions=decoded_extracted_preds, references=decoded_labels, use_stemmer=True)
             extraction_results = {"extraction_"+key: value for key,value in extraction_results.items()}
