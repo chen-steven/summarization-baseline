@@ -275,10 +275,13 @@ class UnsupervisedExtractorAbstractorT5(T5ForConditionalGeneration):
                 loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
 
                 sim_loss_fct = nn.CosineSimilarity()
-                
-                loss -= (sim_loss_fct(hidden_states.mean(1), encoded_summary[0].mean(1))).mean()
+
+                pooled_hidden_states = hidden_states.mean(1) if self.config.mean_pool_similarity else torch.max(hidden_states, 1)[0]
+                pooled_encoded_summary = encoded_summary[0].mean(1) if self.config.mean_pool_similarity else torch.max(encoded_summary[0], 1)[0]
+                loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
             else:
                 loss = torch.tensor(0.).cuda()
+
 #            sentence_loss_fct = nn.BCEWithLogitsLoss()
 #            loss = 0
 

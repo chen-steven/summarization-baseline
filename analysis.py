@@ -154,5 +154,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 #    main(args)
-#    compute_extraction_metrics()
-    lead_baseline(5)
+    compute_extraction_metrics()
+#    lead_baseline(5)

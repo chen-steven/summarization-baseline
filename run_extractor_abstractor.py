@@ -48,6 +48,7 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from models.extractor_abstractor import ExtractorAbstractorT5
 from models.unsupervised_extractor_abstractor import UnsupervisedExtractorAbstractorT5
+from models.unsupervised_extractor_baseline import UnsupervisedExtractorBaseline
 from trainers.extractor_abstractor_trainer import ExtractorAbstractorTrainer
 from preprocess import DataCollatorForExtractorAbstractor
 from models.metrics import ExtractionScorer
@@ -109,6 +110,12 @@ class ModelArguments:
             "help": "Use teacher forcing for extraction step"
         }
     )
+    mean_pool_similarity: bool = field(
+        default=False,
+        metadata={
+            "help": "Use mean pooling for computing similarity loss"
+            }
+        )
     extraction_k: int = field(
         default=5,
         metadata={
@@ -397,6 +404,7 @@ def main():
     model.config.teacher_forcing = model_args.teacher_forcing
     model.config.extraction_k = model_args.extraction_k
     model.config.sequential_extraction = model_args.sequential_extraction
+    model.config.mean_pool_similarity = model_args.mean_pool_similarity
 
     # Set decoder_start_token_id
     if model.config.decoder_start_token_id is None and isinstance(tokenizer, (MBartTokenizer, MBartTokenizerFast)):
@@ -634,8 +642,10 @@ def main():
             result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
             # Extract a few results from ROUGE
             print('***** Abstractive *****')
+            json.dump(decoded_preds, open(os.path.join(training_args.output_dir, 'abstractive_summaries.json'), 'w'))
             print(decoded_preds[:3])
             print('***** Extractive *****')
+            json.dump(decoded_extracted_preds, open(os.path.join(training_args.output_dir, 'extractive_summaries.json'), 'w'))
             print(decoded_extracted_preds[:3])
             extraction_results = metric.compute(predictions=decoded_extracted_preds, references=decoded_labels, use_stemmer=True)
             extraction_results = {"extraction_"+key: value for key,value in extraction_results.items()}

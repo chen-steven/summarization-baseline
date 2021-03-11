@@ -165,12 +165,7 @@ class UnsupervisedExtractorBaseline(T5ForConditionalGeneration):
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
-        if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
-            # get decoder inputs from shifting lm labels to the right
-            decoder_input_ids = self._shift_right(labels)
-
-        if self.training:
-            reconstruction_decoder_input_ids = self._shift_right(input_ids)
+        decoder_input_ids = self._shift_right(input_ids)
 
         # If decoding with past key value states, only the last tokens
         # should be given as an input
