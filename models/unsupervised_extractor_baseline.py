@@ -165,8 +165,6 @@ class UnsupervisedExtractorBaseline(T5ForConditionalGeneration):
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
-        decoder_input_ids = self._shift_right(input_ids)
-
         # If decoding with past key value states, only the last tokens
         # should be given as an input
         if past_key_values is not None:
@@ -222,9 +220,16 @@ class UnsupervisedExtractorBaseline(T5ForConditionalGeneration):
         loss = None
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+            sim_loss_fct = nn.CosineSimilarity()
+
+            pooled_hidden_states = hidden_states.mean(1)
+            pooled_encoded_summary = masked_hidden_states[0].mean(1)
+            loss = -(sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
+
+            
             #labels = input_ids * attention_mask + (-100) * (1 - attention_mask)
-            reconstruction_labels = input_ids*attention_mask + (-100) * (1-attention_mask)
-            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), reconstruction_labels.view(-1))
+            #reconstruction_labels = input_ids*attention_mask + (-100) * (1-attention_mask)
+            #loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), reconstruction_labels.view(-1))
 
         if not return_dict:
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
