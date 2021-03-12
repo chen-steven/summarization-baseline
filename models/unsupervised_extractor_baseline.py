@@ -185,6 +185,7 @@ class UnsupervisedExtractorBaseline(T5ForConditionalGeneration):
             if decoder_attention_mask is not None:
                 decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
 
+        decoder_input_ids = self._shift_right(input_ids)
         # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
@@ -222,8 +223,9 @@ class UnsupervisedExtractorBaseline(T5ForConditionalGeneration):
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             sim_loss_fct = nn.CosineSimilarity()
 
-            pooled_hidden_states = hidden_states.mean(1)
-            pooled_encoded_summary = masked_hidden_states[0].mean(1)
+            pooled_hidden_states = hidden_states.mean(1).detach()
+            pooled_encoded_summary = masked_hidden_states.mean(1)
+
             loss = -(sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
 
             

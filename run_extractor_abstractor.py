@@ -70,6 +70,7 @@ class ExtractorAbstractorTrainingArguments(Seq2SeqTrainingArguments):
         default=False, metadata={"help": "Flag for training only the extractor"}
         )
 
+model_name_mapping = {                                                                                                                                                                                                                 "supervised_ext_abs": ExtractorAbstractorT5,                                                                                                                                                                                       "unsupervised_ext_abs": UnsupervisedExtractorAbstractorT5,                                                                                                                                                                         "unsupervised_ext_baseline": UnsupervisedExtractorBaseline                                                                                                                                                                     }
 @dataclass
 class ModelArguments:
     """
@@ -78,6 +79,11 @@ class ModelArguments:
 
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
+    )
+    model_type: str= field(
+        metadata={"help": "Supervised or unsupervised variants of the extractor abstractor model. Choices are " + str(list(model_name_mapping.keys())),
+                  "choices": list(model_name_mapping.keys())
+        }
     )
     config_name: Optional[str] = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
@@ -390,7 +396,8 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
 
-    model_cls = UnsupervisedExtractorAbstractorT5 if model_args.unsupervised_ext_abs else ExtractorAbstractorT5
+#    model_cls = UnsupervisedExtractorAbstractorT5 if model_args.unsupervised_ext_abs else ExtractorAbstractorT5
+    model_cls = model_name_mapping[model_args.model_type]
     model = model_cls.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
