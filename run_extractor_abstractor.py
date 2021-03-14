@@ -49,6 +49,7 @@ from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from models.extractor_abstractor import ExtractorAbstractorT5
 from models.unsupervised_extractor_abstractor import UnsupervisedExtractorAbstractorT5
 from models.unsupervised_extractor_baseline import UnsupervisedExtractorBaseline
+from models.unsupervised_paraphrase import UnsupervisedExtractorParaphrase
 from trainers.extractor_abstractor_trainer import ExtractorAbstractorTrainer
 from preprocess import DataCollatorForExtractorAbstractor
 from models.metrics import ExtractionScorer
@@ -70,7 +71,12 @@ class ExtractorAbstractorTrainingArguments(Seq2SeqTrainingArguments):
         default=False, metadata={"help": "Flag for training only the extractor"}
         )
 
-model_name_mapping = {                                                                                                                                                                                                                 "supervised_ext_abs": ExtractorAbstractorT5,                                                                                                                                                                                       "unsupervised_ext_abs": UnsupervisedExtractorAbstractorT5,                                                                                                                                                                         "unsupervised_ext_baseline": UnsupervisedExtractorBaseline                                                                                                                                                                     }
+model_name_mapping = {
+    "supervised_ext_abs": ExtractorAbstractorT5,
+    "unsupervised_ext_abs": UnsupervisedExtractorAbstractorT5,
+    "unsupervised_ext_baseline": UnsupervisedExtractorBaseline,
+    "unsupervised_paraphrase": UnsupervisedExtractorParaphrase
+}
 @dataclass
 class ModelArguments:
     """
@@ -500,8 +506,14 @@ def main():
                 targets = [ex[target_lang] for ex in examples["translation"]]
             else:
                 inputs = examples[text_column]
-                targets = examples[summary_column]
+
                 ids = examples['id']
+                if split == "train" and model_args.model_type == 'unsupervised_paraphrase':
+                    paraphrases = json.load(open('data_augmentation/paraphrase.json', 'r'))
+                    targets = [paraphrases[_id] for _id in ids]
+                else:
+                    targets = examples[summary_column]
+
             inputs = [prefix + inp for inp in inputs]
 
             sentence_label_map = json.load(open(os.path.join(data_args.sentence_label_dir, f'{split}_sentence_labels.json'), 'r'))

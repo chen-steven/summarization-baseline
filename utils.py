@@ -1,5 +1,18 @@
 import torch
 
+class NonInvertedDropout(torch.nn.Module):
+    def __init__(self, p: float = 0.5):
+        super().__init__()
+        if p < 0 or p > 1:
+            raise ValueError("dropout probability has to be between 0 and 1, " "but got {}".format(p))
+        self.p = p
+
+    def forward(self, X):
+        if self.training:
+            binomial = torch.distributions.binomial.Binomial(probs=1-self.p)
+            return X * binomial.sample(X.size())
+        return X
+
 def convert_attention_mask(sentence_indicator, gumbel_output):
     batch_size, sent_num = gumbel_output.size()
     batch_idx = torch.range(0, batch_size - 1, dtype=torch.long).reshape(-1, 1).cuda()
@@ -63,3 +76,5 @@ def mask_tensor(tensor, mask, mask_value=-1e30):
 if __name__ == '__main__':
     tensor = torch.tensor([[1,5,-1,-1,-1], [2,3,8, -1, -1]])
     print(convert_single_one_hot(tensor[:,2], 9))
+
+
