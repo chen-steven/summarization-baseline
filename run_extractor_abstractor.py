@@ -408,6 +408,8 @@ def main():
     )
 
     #set model config from args
+    if model_args.model_type.startswith('unsupervised') and model_args.teacher_forcing:
+        raise ValueError("Using teacher forcing with unsupervised models is not allowed")
     model.config.teacher_forcing = model_args.teacher_forcing
     model.config.extraction_k = model_args.extraction_k
     model.config.sequential_extraction = model_args.sequential_extraction
@@ -542,8 +544,8 @@ def main():
                 labels["input_ids"] = [
                     [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
                 ]
-
-            model_inputs["labels"] = labels["input_ids"]
+            if split != "train" or not model_args.model_type.startswith('unsupervised'):
+                model_inputs["labels"] = labels["input_ids"]
             model_inputs['sentence_indicator'] = sentence_indicator
             model_inputs['sentence_labels'] = sentence_labels
 

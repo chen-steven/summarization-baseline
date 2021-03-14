@@ -165,6 +165,12 @@ class UnsupervisedExtractorBaseline(T5ForConditionalGeneration):
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
+        if decoder_input_ids is None and self.training:                                                                                                                                                                                        decoder_input_ids = self._shift_right(input_ids)
+        
+        if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
+            # get decoder inputs from shifting lm labels to the right
+            decoder_input_ids = self._shift_right(labels)
+
         # If decoding with past key value states, only the last tokens
         # should be given as an input
         if past_key_values is not None:
@@ -185,8 +191,9 @@ class UnsupervisedExtractorBaseline(T5ForConditionalGeneration):
             if decoder_attention_mask is not None:
                 decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
 
-        decoder_input_ids = self._shift_right(input_ids)
+
         # Decode
+
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -258,6 +265,7 @@ class UnsupervisedExtractorBaseline(T5ForConditionalGeneration):
         # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
         res = super().prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask,
                                                     use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
+
         res['sentence_indicator'] = decoder_sentence_indicator
         res['sentence_labels'] = decoder_sentence_labels
         return res
