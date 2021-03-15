@@ -6,12 +6,6 @@ import torch.nn.functional as F
 import utils
 from models.outputs import ExtractorAbstractorOutput
 
-class ExtractiveEncoder(nn.Module):
-    def __init__(self, encoder):
-        super().__init__()
-        self.encoder = encoder
-    def forward():
-        pass
 
 class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
     def __init__(self, config):
@@ -161,16 +155,9 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
         else:
             gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
 
+
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
-
-#        extracted_sentence_encoding = self.encoder(
-#             input_ids=input_ids*new_attention_mask,
-#             attention_mask=new_attention_mask,
-#             return_dict=return_dict,
-#        )
-
-        #TODO also try reencoding the input ids to compute similarity loss
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
@@ -200,14 +187,14 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
                 decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
 
 
-        if self.training:
-            attention_mask = self.attention_dropout(attention_mask)
-            hidden_states = hidden_states*attention_mask.unsqueeze(-1)
+        # if self.training:
+        #     attention_mask = self.attention_dropout(attention_mask)
+        #     hidden_states = hidden_states*attention_mask.unsqueeze(-1)
 
-#        if not self.training:
-#            extracted_sentence_encoding = self.encoder(input_ids=input_ids*new_attention_mask, attention_mask=new_attention_mask)
-#            hidden_states = extracted_sentence_encoding[0]
-#            attention_mask = new_attention_mask
+        if not self.training:
+            extracted_sentence_encoding = self.encoder(input_ids=input_ids*new_attention_mask, attention_mask=new_attention_mask)
+            hidden_states = extracted_sentence_encoding[0]
+            attention_mask = new_attention_mask
 
         # Decode
         decoder_outputs = self.decoder(
@@ -215,8 +202,8 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             past_key_values=past_key_values,
-            encoder_hidden_states=hidden_states if self.training else masked_hidden_states,
-            encoder_attention_mask=attention_mask if self.training else new_attention_mask,
+            encoder_hidden_states=hidden_states, #if self.training else masked_hidden_states,
+            encoder_attention_mask=attention_mask, #if self.training else new_attention_mask,
             head_mask=decoder_head_mask,
             encoder_head_mask=head_mask,
             use_cache=use_cache,
@@ -276,6 +263,7 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
     ):
         # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
         res = super().prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
+        res['input_ids'] = input_ids
         res['sentence_indicator'] = decoder_sentence_indicator
         res['sentence_labels'] = decoder_sentence_labels
         return res
