@@ -19,6 +19,7 @@ Fine-tuning the library models for sequence to sequence.
 # You can also adapt this script on your own sequence to sequence task. Pointers for this are left as comments.
 
 import json
+import pickle
 import logging
 import os
 import re
@@ -509,7 +510,8 @@ def main():
 
                 ids = examples['id']
                 if split == "train" and model_args.model_type == 'unsupervised_paraphrase':
-                    paraphrases = json.load(open('data_augmentation/paraphrase.json', 'r'))
+                    print("Using paraphrases")
+                    paraphrases = pickle.load(open('data_augmentation/fixed_paraphrase.pkl', 'rb'))
                     targets = [paraphrases[_id] for _id in ids]
                 else:
                     targets = examples[summary_column]
@@ -556,8 +558,8 @@ def main():
                 labels["input_ids"] = [
                     [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
                 ]
-            if split != "train" or not model_args.model_type.startswith('unsupervised'):
-                model_inputs["labels"] = labels["input_ids"]
+#            if split != "train" or not model_args.model_type.startswith('unsupervised'):
+            model_inputs["labels"] = labels["input_ids"]
             model_inputs['sentence_indicator'] = sentence_indicator
             model_inputs['sentence_labels'] = sentence_labels
 

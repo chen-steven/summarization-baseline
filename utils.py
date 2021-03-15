@@ -10,7 +10,7 @@ class NonInvertedDropout(torch.nn.Module):
     def forward(self, X):
         if self.training:
             binomial = torch.distributions.binomial.Binomial(probs=1-self.p)
-            return X * binomial.sample(X.size())
+            return X * binomial.sample(X.size()).cuda()
         return X
 
 def convert_attention_mask(sentence_indicator, gumbel_output):

@@ -6,6 +6,12 @@ import torch.nn.functional as F
 import utils
 from models.outputs import ExtractorAbstractorOutput
 
+class ExtractiveEncoder(nn.Module):
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+    def forward():
+        pass
 
 class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
     def __init__(self, config):
@@ -158,11 +164,11 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
-        # extracted_sentence_encoding = self.encoder(
-        #     input_ids=input_ids*new_attention_mask,
-        #     attention_mask=new_attention_mask,
-        #     return_dict=return_dict,
-        # )
+#        extracted_sentence_encoding = self.encoder(
+#             input_ids=input_ids*new_attention_mask,
+#             attention_mask=new_attention_mask,
+#             return_dict=return_dict,
+#        )
 
         #TODO also try reencoding the input ids to compute similarity loss
 
@@ -196,7 +202,12 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
 
         if self.training:
             attention_mask = self.attention_dropout(attention_mask)
-            hidden_states = hidden_states*attention_mask
+            hidden_states = hidden_states*attention_mask.unsqueeze(-1)
+
+#        if not self.training:
+#            extracted_sentence_encoding = self.encoder(input_ids=input_ids*new_attention_mask, attention_mask=new_attention_mask)
+#            hidden_states = extracted_sentence_encoding[0]
+#            attention_mask = new_attention_mask
 
         # Decode
         decoder_outputs = self.decoder(
