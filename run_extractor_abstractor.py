@@ -513,6 +513,8 @@ def main():
                     print("Using paraphrases")
                     paraphrases = pickle.load(open('data_augmentation/fixed_paraphrase.pkl', 'rb'))
                     targets = [paraphrases[_id] for _id in ids]
+
+                    inputs, targets = targets, inputs
                 else:
                     targets = examples[summary_column]
 

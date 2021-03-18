@@ -6,12 +6,20 @@ import torch.nn.functional as F
 import utils
 from models.outputs import ExtractorAbstractorOutput
 
+class ExtractiveEncoder(nn.Module):
+    def __init__(self, config, encoder, sentence_classifier):
+        self.config = config
+        self.encoder = encoder
+        self.sentence_classifier = sentence_classifier
+
+    def forward():
+        pass
 
 class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
         self.sentence_classifier = nn.Linear(config.d_model, 1)
-        self.attention_dropout = utils.NonInvertedDropout(0.3)
+        self.attention_dropout = utils.NonInvertedDropout(0.6)
 
     def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
         combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
@@ -45,7 +53,6 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
         sentence_lens = []
         for i in range(sentence_indicator.max() + 1):
             mask = (sentence_indicator == i).long().cuda()
-
             sentence_embedding = torch.sum(hidden_states * mask.unsqueeze(-1), dim=1)
             sentence_len = mask.sum(dim=1).view(-1, 1)
             sentences.append(sentence_embedding)
@@ -108,6 +115,7 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
     def forward(
             self,
             input_ids=None,
+ #           real_input_ids=None,
             attention_mask=None,
             sentence_indicator=None,
             sentence_labels=None,
@@ -148,6 +156,7 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
             )
 
         hidden_states = encoder_outputs[0]
+        hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
 
         # extract salient sentences
         if self.config.sequential_extraction:
@@ -187,14 +196,17 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
                 decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
 
 
-        # if self.training:
-        #     attention_mask = self.attention_dropout(attention_mask)
-        #     hidden_states = hidden_states*attention_mask.unsqueeze(-1)
+        if self.training:
+             attention_mask = self.attention_dropout(attention_mask)
+             hidden_states = hidden_states*attention_mask.unsqueeze(-1)
+             extracted_sentence_encoding = self.encoder(input_ids=input_ids*new_attention_mask.long(), attention_mask=new_attention_mask)
 
-        if not self.training:
-            extracted_sentence_encoding = self.encoder(input_ids=input_ids*new_attention_mask, attention_mask=new_attention_mask)
-            hidden_states = extracted_sentence_encoding[0]
-            attention_mask = new_attention_mask
+#        if not self.training:
+#            if real_input_ids is None:
+#                real_input_ids = input_ids
+#            extracted_sentence_encoding = self.encoder(input_ids=real_input_ids*new_attention_mask.long(), attention_mask=new_attention_mask)
+#            hidden_states = extracted_sentence_encoding[0]
+#            attention_mask = new_attention_mask
 
         # Decode
         decoder_outputs = self.decoder(
@@ -202,8 +214,8 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             past_key_values=past_key_values,
-            encoder_hidden_states=hidden_states, #if self.training else masked_hidden_states,
-            encoder_attention_mask=attention_mask, #if self.training else new_attention_mask,
+            encoder_hidden_states=hidden_states if self.training else masked_hidden_states,
+            encoder_attention_mask=attention_mask if self.training else new_attention_mask,
             head_mask=decoder_head_mask,
             encoder_head_mask=head_mask,
             use_cache=use_cache,
@@ -233,10 +245,10 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             sim_loss_fct = nn.CosineSimilarity()
-            pooled_hidden_states = hidden_states.mean(1).detach()
-            pooled_encoded_summary = masked_hidden_states.mean(1)
+            pooled_hidden_states = hidden_states_non_pad.mean(1) #detach()?
+            pooled_encoded_summary = masked_hidden_states.mean(1) if not self.training else (extracted_sentence_encoding[0]*(new_attention_mask.unsqueeze(-1))).mean(1)
 
-            loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
+            loss -= 2*(sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
 
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
 
@@ -259,11 +271,16 @@ class UnsupervisedExtractorParaphrase(T5ForConditionalGeneration):
         )
 
     def prepare_inputs_for_generation(
-            self, input_ids, decoder_sentence_indicator=None, decoder_sentence_labels=None, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
+            self, input_ids, real_input_ids=None, decoder_sentence_indicator=None, decoder_sentence_labels=None, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
     ):
         # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
         res = super().prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
-        res['input_ids'] = input_ids
+#        res['real_input_ids'] = real_input_ids
         res['sentence_indicator'] = decoder_sentence_indicator
         res['sentence_labels'] = decoder_sentence_labels
         return res
+
+#    def _prepare_encoder_decoder_kwargs_for_generation(self, input_ids: torch.LongTensor, model_kwargs):
+#        m_k = super()._prepare_encoder_decoder_kwargs_for_generation(input_ids, model_kwargs)
+#        m_k['real_input_ids'] = input_ids
+#        return m_k

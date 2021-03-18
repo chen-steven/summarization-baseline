@@ -139,8 +139,36 @@ def lead_baseline(num_lead=3):
     print(result)
     res = scorer.compute_metric(pred_evidence, gt_evidence, postprocess=False)
     print(res)
-    
 
+def compute_rouge_score(pred, targets):
+    metric = load_metric('rouge')
+
+    preds = ['\n'.join(nltk.sent_tokenize(s)) for s in tqdm(pred)]
+    targets = ['\n'.join(nltk.sent_tokenize(s)) for s in tqdm(targets)]
+    result = metric.compute(predictions=preds, references=targets, use_stemmer=True)
+    result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
+    return result
+
+def t5_zeroshot():
+    model = T5ForConditionalGeneration.from_pretrained('t5-small')
+    dataset = load_dataset('cnn_dailymail', '3.0.0')
+    val_dataset = dataset['validation']
+    inputs = val_dataset['article']
+    targets = val_dataset['highlights']
+    device = torch.device('cuda:1')
+    model = model.to(device)
+    tokenizer = AutoTokenizer.from_pretrained('t5-small')
+
+    predictions = []
+    for article in tqdm(inputs):
+        inp = tokenizer("summarize: "+article, return_tensors="pt", padding="max_length", max_length=512).to(device)
+        summary_ids = model.generate(inp.input_ids, num_beams=1, no_repeat_ngram_size=3, min_length=10, max_length=128, length_penalty=2.0)
+        output = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+        predictions.append(output)
+
+    print(compute_rouge_score(predictions, targets))
+    
+        
     
 
     
@@ -154,5 +182,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 #    main(args)
-    compute_extraction_metrics()
+#    compute_extraction_metrics()
 #    lead_baseline(5)
+    t5_zeroshot()

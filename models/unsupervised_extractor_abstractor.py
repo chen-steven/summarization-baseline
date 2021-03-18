@@ -278,6 +278,8 @@ class UnsupervisedExtractorAbstractorT5(T5ForConditionalGeneration):
 
                 pooled_hidden_states = hidden_states.mean(1) if self.config.mean_pool_similarity else torch.max(hidden_states, 1)[0]
                 pooled_encoded_summary = encoded_summary[0].mean(1) if self.config.mean_pool_similarity else torch.max(encoded_summary[0], 1)[0]
+
+#                pooled_encoded_summary = masked_hidden_states.mean(1)
                 loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
             else:
                 loss = torch.tensor(0.).cuda()
