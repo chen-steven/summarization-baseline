@@ -6,6 +6,7 @@ from rouge_score import rouge_scorer
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizerBase, PreTrainedModel
 import json
+import pickle
 from typing import Any, Callable, Dict, List, NewType, Optional, Tuple, Union
 import multiprocess as mp
 from transformers.tokenization_utils_base import PaddingStrategy
@@ -192,6 +193,54 @@ def preprocess_cnn(args):
 #         with open(f"{output}_{metric}_{max_length}.res", 'w') as f:
 #             f.write('\n'.join(res))
 #     print(best)
+
+def _preprocess_denoise_train(examples, tokenizer, max_length):
+    ids = examples['id']
+    articles = examples['article']
+    article_map = {ids[i]: articles[i] for i in range(len(ids))}
+    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
+
+    noisy_text_sentences = []
+    clean_text_sentences = []
+
+    for _id in noisy_text:
+        noisy_text_sentences.append(noisy_text[_id])
+        clean_text_sentences.append(sent_tokenize(article_map[_id]))
+
+    sentence_indicator_noise = []
+    sep_token = "</s>"
+    sep_token_id = 1
+    clean_input = [f" {sep_token} ".join(s) for s in clean_text_sentences]
+    noised_input = [f" {sep_token} ".join(s) for s in noisy_text_sentences]
+
+    clean_model_input = tokenizer(clean_input, max_length=max_length, padding="max_length", truncation=True)
+    noised_model_input = tokenizer(noised_input, max_length=max_length, padding="max_length", truncation=True)
+
+    for idx, cur_input_id in enumerate(clean_model_input['input_ids']):
+        sent_count = 0
+        cur_indicator = [0]*len(cur_input_id)
+        for i, ids in enumerate(cur_input_id):
+            if ids == sep_token_id:
+                sent_count += 11
+                cur_indicator[i] = sent_count
+
+        sep_ids = [j for j, x in enumerate(cur_input_id) if x == sep_token_id][:-1]
+
+
+
+def preprocess_denoise(examples, tokenizer, split):
+
+
+    if split == "train":
+
+
+    else:
+        inputs = examples['article']
+        targets = examples['highlights']
+
+
+
+
 
 if __name__ == '__main__':
     import argparse

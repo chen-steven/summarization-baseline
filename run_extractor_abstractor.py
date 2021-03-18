@@ -47,13 +47,17 @@ from transformers import (
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
-from models.extractor_abstractor import ExtractorAbstractorT5
-from models.unsupervised_extractor_abstractor import UnsupervisedExtractorAbstractorT5
-from models.unsupervised_extractor_baseline import UnsupervisedExtractorBaseline
-from models.unsupervised_paraphrase import UnsupervisedExtractorParaphrase
 from trainers.extractor_abstractor_trainer import ExtractorAbstractorTrainer
 from preprocess import DataCollatorForExtractorAbstractor
 from models.metrics import ExtractionScorer
+
+from models import (
+    ExtractorAbstractorT5,
+    UnsupervisedExtractorAbstractorT5,
+    UnsupervisedExtractorBaseline,
+    UnsupervisedExtractorParaphrase,
+    UnsupervisedDenoiseT5
+)
 
 with FileLock(".lock") as lock:
     nltk.download("punkt", quiet=True)
@@ -76,7 +80,8 @@ model_name_mapping = {
     "supervised_ext_abs": ExtractorAbstractorT5,
     "unsupervised_ext_abs": UnsupervisedExtractorAbstractorT5,
     "unsupervised_ext_baseline": UnsupervisedExtractorBaseline,
-    "unsupervised_paraphrase": UnsupervisedExtractorParaphrase
+    "unsupervised_paraphrase": UnsupervisedExtractorParaphrase,
+    "unsupervised_denoise": UnsupervisedDenoiseT5
 }
 @dataclass
 class ModelArguments:
@@ -515,6 +520,10 @@ def main():
                     targets = [paraphrases[_id] for _id in ids]
 
                     inputs, targets = targets, inputs
+                elif split == "train" and model_args.model_type == "unsupervised_denoise":
+                    print("Using denoising dataset")
+                    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
+
                 else:
                     targets = examples[summary_column]
 
@@ -539,7 +548,7 @@ def main():
 
                 sentence_labels[idx] = [x for x in sentence_labels[idx] if x < sent_count]
 
-                sep_ids = [x for x in cur_input_id if x == sep_token_id][:-1] # exclude last sep token
+                sep_ids = [j for j, x in enumerate(cur_input_id) if x == sep_token_id][:-1] # exclude last sep token
 
                 # remove temp sep tokens
                 for i in sep_ids[::-1]:
