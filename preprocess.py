@@ -4,7 +4,7 @@ from datasets import load_dataset
 from nltk import sent_tokenize
 from rouge_score import rouge_scorer
 from tqdm import tqdm
-from transformers import AutoTokenizer, PreTrainedTokenizerBase, PreTrainedModel
+from transformers import AutoTokenizer, PreTrainedTokenizerBase, PreTrainedModel, AutoConfig
 import json
 import pickle
 from typing import Any, Callable, Dict, List, NewType, Optional, Tuple, Union
@@ -194,11 +194,34 @@ def preprocess_cnn(args):
 #             f.write('\n'.join(res))
 #     print(best)
 
+def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1):
+    sentence_indicators = []
+    for idx, cur_input_id in enumerate(input_ids):
+        sent_count = 0
+        cur_indicator = [0]*len(cur_input_id)
+        for i, ids in enumerate(cur_input_id):
+            if ids == sep_token_id:
+                sent_count += 1
+            cur_indicator[i] = sent_count
+
+        sep_ids = [j for j, x in enumerate(cur_input_id) if x == sep_token_id][:-1]
+
+        # remove temp sep tokens
+        for i in sep_ids[::-1]:
+            del cur_input_id[i]
+            del cur_indicator[i]
+            cur_input_id.append(tokenizer.pad_token_id)
+            cur_indicator.append(sent_count)
+
+        sentence_indicators.append(cur_indicator)
+
+    return sentence_indicators
+
 def _preprocess_denoise_train(examples, tokenizer, max_length):
     ids = examples['id']
     articles = examples['article']
     article_map = {ids[i]: articles[i] for i in range(len(ids))}
-    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
+    noisy_text = {ids[i]: sent_tokenize(inp) for i, inp in enumerate(articles)}#pickle.load(open('train_noise_data.pkl', 'rb'))
 
     noisy_text_sentences = []
     clean_text_sentences = []
@@ -207,7 +230,6 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
         noisy_text_sentences.append(noisy_text[_id])
         clean_text_sentences.append(sent_tokenize(article_map[_id]))
 
-    sentence_indicator_noise = []
     sep_token = "</s>"
     sep_token_id = 1
     clean_input = [f" {sep_token} ".join(s) for s in clean_text_sentences]
@@ -216,35 +238,67 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     clean_model_input = tokenizer(clean_input, max_length=max_length, padding="max_length", truncation=True)
     noised_model_input = tokenizer(noised_input, max_length=max_length, padding="max_length", truncation=True)
 
-    for idx, cur_input_id in enumerate(clean_model_input['input_ids']):
-        sent_count = 0
-        cur_indicator = [0]*len(cur_input_id)
-        for i, ids in enumerate(cur_input_id):
-            if ids == sep_token_id:
-                sent_count += 11
-                cur_indicator[i] = sent_count
+    sentence_indicator_clean = _create_sentence_indicator(clean_model_input['input_ids'], tokenizer, sep_token_id)
+    sentence_indicator_noise = _create_sentence_indicator(noised_model_input['input_ids'], tokenizer, sep_token_id)
 
-        sep_ids = [j for j, x in enumerate(cur_input_id) if x == sep_token_id][:-1]
+    noised_model_input['sentence_indicator'] = sentence_indicator_noise
+    noised_model_input['reference_input_ids'] = clean_model_input['input_ids']
+    #noised_model_input['reference_attention_mask'] = clean_model_input['attention_mask']
+    noised_model_input['reference_sentence_indicator'] = sentence_indicator_clean
 
-
-
-def preprocess_denoise(examples, tokenizer, split):
+    return noised_model_input
 
 
+def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length):
+    inputs = examples['article']
+    targets = examples['highlights']
+
+    sep_token = "</s>"
+    sep_token_id = 1
+    new_input = [f" {sep_token} ".join(sent_tokenize(inp)) for inp in inputs]
+    model_inputs = tokenizer(new_input, max_length=max_length, padding="max_length", truncation=True)
+    sentence_indicator = _create_sentence_indicator(model_inputs['input_ids'], tokenizer, sep_token_id)
+
+    with tokenizer.as_target_tokenizer():
+        labels = tokenizer(targets, max_length=max_target_length, padding="max_length", truncation=True)
+
+    labels["input_ids"] = [
+        [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+    ]
+
+    model_inputs["labels"] = labels["input_ids"]
+    model_inputs['sentence_indicator'] = sentence_indicator
+    return model_inputs
+
+
+def preprocess_denoise(examples, tokenizer, max_length, max_target_length, split):
     if split == "train":
-
-
+        return _preprocess_denoise_train(examples, tokenizer, max_length)
     else:
-        inputs = examples['article']
-        targets = examples['highlights']
-
-
-
+        return _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length)
 
 
 if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--split', type=int, default=1)
-    args = parser.parse_args()
-    preprocess_cnn(args)
+    import torch
+    dataset = load_dataset('cnn_dailymail', '3.0.0')
+    train_examples = dataset['train'][:10]
+    tokenizer = AutoTokenizer.from_pretrained('t5-small')
+    max_length=1024
+    max_target_length=200
+    from models import UnsupervisedDenoiseT5
+    config = AutoConfig.from_pretrained('t5-small')
+    config.sequential_extraction=True
+    config.teacher_forcing=False
+    config.extraction_k=5
+    res = preprocess_denoise(train_examples, tokenizer, max_length, max_target_length, 'train')
+    for key in res: print(key)
+    model = UnsupervisedDenoiseT5.from_pretrained('t5-small', config=config)
+    inputs = {key: torch.tensor(val) for key, val in res.items()}
+    model(**inputs)
+
+
+    # import argparse
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--split', type=int, default=1)
+    # args = parser.parse_args()
+    # preprocess_cnn(args)

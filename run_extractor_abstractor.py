@@ -48,7 +48,7 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from trainers.extractor_abstractor_trainer import ExtractorAbstractorTrainer
-from preprocess import DataCollatorForExtractorAbstractor
+from preprocess import DataCollatorForExtractorAbstractor, preprocess_denoise
 from models.metrics import ExtractionScorer
 
 from models import (
@@ -214,7 +214,7 @@ class DataTrainingArguments:
         },
     )
     max_target_length: Optional[int] = field(
-        default=128,
+        default=200,
         metadata={
             "help": "The maximum total sequence length for target text after tokenization. Sequences longer "
             "than this will be truncated, sequences shorter will be padded."
@@ -506,6 +506,11 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
     def get_preprocess_function(split="train"):
+        if model_args.model_type == 'unsupervised_denoise':
+            def _preprocess_function(examples):
+                return preprocess_denoise(examples, tokenizer, data_args.max_source_length, max_target_length, split)
+            return _preprocess_function
+
         def preprocess_function(examples):
             if data_args.task.startswith("translation"):
                 inputs = [ex[source_lang] for ex in examples["translation"]]

@@ -15,7 +15,7 @@ class NonInvertedDropout(torch.nn.Module):
 
 def convert_attention_mask(sentence_indicator, gumbel_output):
     batch_size, sent_num = gumbel_output.size()
-    batch_idx = torch.range(0, batch_size - 1, dtype=torch.long).reshape(-1, 1).cuda()
+    batch_idx = torch.range(0, batch_size - 1, dtype=torch.long).reshape(-1, 1)
     idx = batch_idx * (sent_num) + sentence_indicator
     return gumbel_output.reshape(-1)[idx]
 
@@ -74,7 +74,12 @@ def mask_tensor(tensor, mask, mask_value=-1e30):
     return mask * tensor + (1 - mask) * mask_value
 
 if __name__ == '__main__':
-    tensor = torch.tensor([[1,5,-1,-1,-1], [2,3,8, -1, -1]])
-    print(convert_single_one_hot(tensor[:,2], 9))
+
+    tensor = torch.tensor([[0, 1, 2, 3, 4, 5], [0,0,1,1,1,1]])
+    gumbel_output = torch.tensor([[1,1,0,0,0,0,0,0,0,0,1], [1,1,0,0,0,0,0,0,0,0,1]])
+    print(convert_attention_mask(tensor, gumbel_output))
+    #print(convert_single_one_hot(tensor, gumbel_output))
+    #tensor = torch.tensor([[1,5,-1,-1,-1], [2,3,8, -1, -1]])
+    #print(convert_single_one_hot(tensor[:,2], 9))
 
 
