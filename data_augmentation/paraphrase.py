@@ -1,4 +1,4 @@
-]1;95;0cimport nlpaug.augmenter.word as naw
+import nlpaug.augmenter.word as naw
 from datasets import load_dataset
 import nltk
 import json
@@ -64,5 +64,5 @@ def fix_data():
     pickle.dump(d, open('fixed_paraphrase.pkl', 'wb'))
     
 if __name__ == "__main__":
-#    main()
-    fix_data()
+    main()
+#    fix_data()

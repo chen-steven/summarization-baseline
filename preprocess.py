@@ -10,7 +10,7 @@ import pickle
 from typing import Any, Callable, Dict, List, NewType, Optional, Tuple, Union
 import multiprocess as mp
 from transformers.tokenization_utils_base import PaddingStrategy
-
+import os
 
 @dataclass
 class DataCollatorForExtractorAbstractor:
@@ -50,10 +50,13 @@ class DataCollatorForExtractorAbstractor:
     label_pad_token_id: int = -100
     sentence_label_pad_id: int = -1
 
+
     def __call__(self, features):
         labels = [feature["labels"] for feature in features] if "labels" in features[0].keys() else None
-        sentence_labels = [feature["sentence_labels"] for feature in features]
+        
+        sentence_labels = [feature["sentence_labels"] for feature in features] if "sentence_labels" in features[0].keys() else None
         sentence_indicators = [feature['sentence_indicator'] for feature in features]
+        reference_sentence_indicators = [feature['reference_sentence_indicator'] for feature in features] if 'reference_sentence_indicator' in features[0].keys() else None
         # We have to pad the labels before calling `tokenizer.pad` as this method won't pad them and needs them of the
         # same length to return tensors.
         if labels is not None:
@@ -69,13 +72,22 @@ class DataCollatorForExtractorAbstractor:
         for feature in features:
             remainder = [feature['sentence_indicator'][-1]]*(max_sentence_indicator_length - len(feature['sentence_indicator']))
             feature['sentence_indicator'] = feature['sentence_indicator'] + remainder
-        max_sentence_label_length = max(len(l) for l in sentence_labels)
-        max_sentence_label_length = max(max_sentence_label_length, 5)
+
+        if reference_sentence_indicators is not None:
+            max_ref_sentence_indicator_length = max(len(l) for l in reference_sentence_indicators)
+            for feature in features:
+                remainder = [feature['reference_sentence_indicator'][-1]]*(max_ref_sentence_indicator_length - len(feature['reference_sentence_indicator']))
+                feature['reference_sentence_indicator'] = feature['reference_sentence_indicator'] + remainder
+#        max_sentence_label_length = max(len(l) for l in sentence_labels)
+#        max_sentence_label_length = max(max_sentence_label_length, 5)
 #        sentence_indicators = [feature['sentence_indicator'] for feature in features]
 #        sentence_pad_id = max(l[-1] for l in sentence_indicators)
-        for feature in features:
-            remainder = [self.sentence_label_pad_id] * (max_sentence_label_length - len(feature['sentence_labels']))
-            feature['sentence_labels'] = feature['sentence_labels'] + remainder
+        if sentence_labels is not None:
+            max_sentence_label_length = max(len(l) for l in sentence_labels)
+            max_sentence_label_length = max(max_sentence_label_length, 5)
+            for feature in features:
+                remainder = [self.sentence_label_pad_id] * (max_sentence_label_length - len(feature['sentence_labels']))
+                feature['sentence_labels'] = feature['sentence_labels'] + remainder
 
         features = self.tokenizer.pad(
             features,
@@ -194,7 +206,7 @@ def preprocess_cnn(args):
 #             f.write('\n'.join(res))
 #     print(best)
 
-def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1):
+def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1, sentence_labels=None):
     sentence_indicators = []
     for idx, cur_input_id in enumerate(input_ids):
         sent_count = 0
@@ -203,6 +215,9 @@ def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1):
             if ids == sep_token_id:
                 sent_count += 1
             cur_indicator[i] = sent_count
+            
+        if sentence_labels is not None:
+            sentence_labels[idx] = [x for x in sentence_labels[idx] if x < sent_count]
 
         sep_ids = [j for j, x in enumerate(cur_input_id) if x == sep_token_id][:-1]
 
@@ -221,14 +236,20 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     ids = examples['id']
     articles = examples['article']
     article_map = {ids[i]: articles[i] for i in range(len(ids))}
-    noisy_text = {ids[i]: sent_tokenize(inp) for i, inp in enumerate(articles)}#pickle.load(open('train_noise_data.pkl', 'rb'))
+    l = [key for key in article_map]
+
+    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
 
     noisy_text_sentences = []
     clean_text_sentences = []
 
-    for _id in noisy_text:
-        noisy_text_sentences.append(noisy_text[_id])
+    for _id in ids:
+        noisy_text_sentences.append(noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id]))
         clean_text_sentences.append(sent_tokenize(article_map[_id]))
+            
+#    for _id in noisy_text:
+#        noisy_text_sentences.append(noisy_text[_id])
+#        clean_text_sentences.append(sent_tokenize(article_map[_id]))
 
     sep_token = "</s>"
     sep_token_id = 1
@@ -252,12 +273,18 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
 def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length):
     inputs = examples['article']
     targets = examples['highlights']
+    ids = examples['id']
 
     sep_token = "</s>"
     sep_token_id = 1
     new_input = [f" {sep_token} ".join(sent_tokenize(inp)) for inp in inputs]
     model_inputs = tokenizer(new_input, max_length=max_length, padding="max_length", truncation=True)
-    sentence_indicator = _create_sentence_indicator(model_inputs['input_ids'], tokenizer, sep_token_id)
+
+    sentence_label_map = json.load(open(os.path.join("data", 'val_sentence_labels.json'), 'r'))
+    sentence_labels = [sentence_label_map[i] for i in ids]
+
+    #creates sentence indicator AND update sentence_labels inplace (ensures labels are within sentence count)
+    sentence_indicator = _create_sentence_indicator(model_inputs['input_ids'], tokenizer, sep_token_id, sentence_labels) 
 
     with tokenizer.as_target_tokenizer():
         labels = tokenizer(targets, max_length=max_target_length, padding="max_length", truncation=True)
@@ -268,6 +295,7 @@ def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length)
 
     model_inputs["labels"] = labels["input_ids"]
     model_inputs['sentence_indicator'] = sentence_indicator
+    model_inputs['sentence_labels'] = sentence_labels
     return model_inputs
 
 

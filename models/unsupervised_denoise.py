@@ -12,18 +12,26 @@ class UnsupervisedDenoiseT5(ExtractorBaseT5):
         super().__init__(config)
         self.sentence_classifier = nn.Linear(config.d_model, 1)
         self.attention_dropout = utils.NonInvertedDropout(0.6)
-        self.tokenizer = AutoTokenizer.from_pretrained('t5-small')
-
+        self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
     def _get_extractive_summary(self, reference_input_ids, reference_sentence_indicator, gumbel_output):
-        attention_mask = utils.convert_attention_mask(reference_sentence_indicator, gumbel_output).detach()
-        extractive_summary_ids = reference_input_ids*attention_mask + (1-attention_mask)*self.tokenizer.pad_token_id
-        extractive_summary = self.tokenizer.batch_decode(extractive_summary_ids, skip_special_tokens=True)
-        with self.tokenizer.as_target_tokenizer():
-            labels = self.tokenizer(extractive_summary, max_length=200, padding="max_length", truncation=True)
+        tokenizer = self.tokenizers[reference_input_ids.device.index]
+        ref_max = reference_sentence_indicator.max()
+        if ref_max >= gumbel_output.size(1):
+            pad = torch.zeros(reference_sentence_indicator.size(0), ref_max + 1 - gumbel_output.size(1)).cuda()
+            gumbel_output = torch.cat((gumbel_output, pad), -1)
+
+        attention_mask = utils.convert_attention_mask(reference_sentence_indicator, gumbel_output).long().detach()
+        extractive_summary_ids = reference_input_ids*attention_mask + (1-attention_mask)*tokenizer.pad_token_id
+
+        extractive_summary = tokenizer.batch_decode(extractive_summary_ids, skip_special_tokens=True)
+#        print('CLEAN:', extractive_summary)
+
+        with tokenizer.as_target_tokenizer():
+            labels = tokenizer(extractive_summary, max_length=200, padding="max_length", truncation=True)
         labels["input_ids"] = [
-            [(l if l != self.tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+            [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
         ]
-        return labels['input_ids']
+        return torch.tensor(labels['input_ids']).cuda(), torch.tensor(labels['attention_mask']).cuda()
 
     def forward(
             self,
@@ -74,18 +82,24 @@ class UnsupervisedDenoiseT5(ExtractorBaseT5):
 
         # extract salient sentences
         if self.config.sequential_extraction:
-            gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
+            gumbel_output, gumbel_output1, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels, two_selections=True)
         else:
             gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
-        print('gumbel_output', gumbel_output)
+
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
+
+ #       tokenizer = self.tokenizers[new_attention_mask.device.index]      
+#        ext_sum_ii = input_ids*new_attention_mask.long() + (1-new_attention_mask.long())*tokenizer.pad_token_id
+#        extractive_summary = tokenizer.batch_decode(ext_sum_ii, skip_special_tokens=True)
+#        print('NOISE:', extractive_summary)
+        
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
         if self.training:
-            labels = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output)
+            labels, label_attention_mask = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output)
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right
@@ -117,8 +131,8 @@ class UnsupervisedDenoiseT5(ExtractorBaseT5):
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             past_key_values=past_key_values,
-            encoder_hidden_states=hidden_states if self.training else masked_hidden_states,
-            encoder_attention_mask=attention_mask if self.training else new_attention_mask,
+            encoder_hidden_states=masked_hidden_states,
+            encoder_attention_mask=new_attention_mask,
             head_mask=decoder_head_mask,
             encoder_head_mask=head_mask,
             use_cache=use_cache,
@@ -145,12 +159,20 @@ class UnsupervisedDenoiseT5(ExtractorBaseT5):
 
         loss = None
         if labels is not None:
+            if self.training:
+                gumbel = F.gumbel_softmax(lm_logits, hard=True, dim=-1)
+                indices = torch.arange(gumbel.size(-1)).view(1, 1, -1).expand(gumbel.size(0), gumbel.size(1), -1).cuda()
+                summary = (gumbel*indices).long().sum(-1)
+            
+                encoded_summary = self.get_encoder()(summary, attention_mask=label_attention_mask)
+                        
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             sim_loss_fct = nn.CosineSimilarity()
-            pooled_hidden_states = hidden_states_non_pad.mean(1) #detach()?
-            pooled_encoded_summary = masked_hidden_states.mean(1)
-            loss -= 2*(sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
+            pooled_hidden_states = hidden_states_non_pad.mean(1).detach() #detach()?
+            #pooled_encoded_summary = masked_hidden_states.mean(1)
+            pooled_encoded_summary = encoded_summary[0].mean(1) if self.training else masked_hidden_states.mean(1)
+            loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
 
         if not return_dict:
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs

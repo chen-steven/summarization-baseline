@@ -37,7 +37,7 @@ class ExtractorBaseT5(T5ForConditionalGeneration):
 
         return sentence_logits, new_embedding, new_len, sentence_mask, one_hot.squeeze(-1)
 
-    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels):
+    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels, two_selections=False):
         all_sentence_logits = []
         sentences = []
         sentence_lens = []
@@ -58,6 +58,7 @@ class ExtractorBaseT5(T5ForConditionalGeneration):
         cur_len = torch.zeros(sentence_lens.size(0), sentence_lens.size(-1)).cuda()
 
         selected_one_hot = torch.zeros(sentences.size(0), sentences.size(1)).cuda()
+        selected_one_hot1 = torch.zeros(sentences.size(0), sentences.size(1)).cuda()
         sentence_mask = utils.get_sentence_mask(sentence_indicator, sentences.size(1)).float()
 
         for i in range(self.config.extraction_k):
@@ -68,8 +69,13 @@ class ExtractorBaseT5(T5ForConditionalGeneration):
                                                                                                   sentence_mask,
                                                                                                   sentence_labels[:, i] if sentence_labels is not None else None)
             selected_one_hot = selected_one_hot + one_hot
+            if i < 3:
+                selected_one_hot1 = selected_one_hot1 + one_hot
             all_sentence_logits.append(sentence_logits)
         selected_one_hot = selected_one_hot.clamp(max=1)
+        selectd_one_hot1 = selected_one_hot1.clamp(max=1)
+        if two_selections:
+            return selected_one_hot, selected_one_hot1, all_sentence_logits
         return selected_one_hot, all_sentence_logits
 
     def single_extraction(self, hidden_states, sentence_indicator, sentence_labels):
