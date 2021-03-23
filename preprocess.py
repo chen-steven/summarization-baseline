@@ -244,7 +244,8 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     clean_text_sentences = []
 
     for _id in ids:
-        noisy_text_sentences.append(noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id]))
+#        noisy_text_sentences.append(noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id]))
+        noisy_text_sentences.append(sent_tokenize(article_map[_id]))
         clean_text_sentences.append(sent_tokenize(article_map[_id]))
             
 #    for _id in noisy_text:
