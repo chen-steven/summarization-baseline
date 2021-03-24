@@ -56,7 +56,8 @@ from models import (
     UnsupervisedExtractorAbstractorT5,
     UnsupervisedExtractorBaseline,
     UnsupervisedExtractorParaphrase,
-    UnsupervisedDenoiseT5
+    UnsupervisedDenoiseT5,
+    UnsupervisedCheck
 )
 
 with FileLock(".lock") as lock:
@@ -81,7 +82,8 @@ model_name_mapping = {
     "unsupervised_ext_abs": UnsupervisedExtractorAbstractorT5,
     "unsupervised_ext_baseline": UnsupervisedExtractorBaseline,
     "unsupervised_paraphrase": UnsupervisedExtractorParaphrase,
-    "unsupervised_denoise": UnsupervisedDenoiseT5
+    "unsupervised_denoise": UnsupervisedDenoiseT5,
+    "unsupervised_check": UnsupervisedCheck
 }
 @dataclass
 class ModelArguments:
