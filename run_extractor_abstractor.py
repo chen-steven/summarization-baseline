@@ -506,10 +506,10 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
     def get_preprocess_function(split="train"):
-        if model_args.model_type == 'unsupervised_denoise':
-            def _preprocess_function(examples):
-                return preprocess_denoise(examples, tokenizer, data_args.max_source_length, max_target_length, split)
-            return _preprocess_function
+#        if model_args.model_type == 'unsupervised_denoise':
+#            def _preprocess_function(examples):
+#                return preprocess_denoise(examples, tokenizer, data_args.max_source_length, max_target_length, split)
+#            return _preprocess_function
 
         def preprocess_function(examples):
             if data_args.task.startswith("translation"):
@@ -525,9 +525,9 @@ def main():
                     targets = [paraphrases[_id] for _id in ids]
 
                     inputs, targets = targets, inputs
-                elif split == "train" and model_args.model_type == "unsupervised_denoise":
-                    print("Using denoising dataset")
-                    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
+#                elif split == "train" and model_args.model_type == "unsupervised_denoise":
+#                    print("Using denoising dataset")
+#                    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
 
                 else:
                     targets = examples[summary_column]
@@ -577,7 +577,7 @@ def main():
 #            if split != "train" or not model_args.model_type.startswith('unsupervised'):
             model_inputs["labels"] = labels["input_ids"]
             model_inputs['sentence_indicator'] = sentence_indicator
-            model_inputs['sentence_labels'] = sentence_labels
+ #           model_inputs['sentence_labels'] = sentence_labels
 
             return model_inputs
         return preprocess_function
