@@ -182,17 +182,11 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
- #       tokenizer = self.tokenizers[new_attention_mask.device.index]      
-#        ext_sum_ii = input_ids*new_attention_mask.long() + (1-new_attention_mask.long())*tokenizer.pad_token_id
-#        extractive_summary = tokenizer.batch_decode(ext_sum_ii, skip_special_tokens=True)
-#        print('NOISE:', extractive_summary)
-        
-
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
-        #if self.training:
-        #    labels, label_attention_mask = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output)
+        if self.training:
+            labels, label_attention_mask = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output)
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right

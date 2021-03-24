@@ -296,14 +296,14 @@ def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length)
     #creates sentence indicator AND update sentence_labels inplace (ensures labels are within sentence count)
     sentence_indicator = _create_sentence_indicator(model_inputs['input_ids'], tokenizer, sep_token_id, sentence_labels) 
 
-    with tokenizer.as_target_tokenizer():
-        labels = tokenizer(targets, max_length=max_target_length, padding="max_length", truncation=True)
-
-    labels["input_ids"] = [
-        [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-    ]
-
-    model_inputs["labels"] = labels["input_ids"]
+    # with tokenizer.as_target_tokenizer():
+    #     labels = tokenizer(targets, max_length=max_target_length, padding="max_length", truncation=True)
+    #
+    # labels["input_ids"] = [
+    #     [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+    # ]
+    #
+    # model_inputs["labels"] = labels["input_ids"]
     model_inputs['sentence_indicator'] = sentence_indicator
     model_inputs['sentence_labels'] = sentence_labels
     return model_inputs
