@@ -268,6 +268,15 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     #noised_model_input['reference_attention_mask'] = clean_model_input['attention_mask']
     noised_model_input['reference_sentence_indicator'] = sentence_indicator_clean
 
+    targets = examples['highlights']
+    with tokenizer.as_target_tokenizer():
+        labels = tokenizer(targets, max_length=200, padding="max_length", truncation=True)
+
+    labels["input_ids"] = [
+        [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+    ]
+    noised_model_input['labels'] = labels['input_ids']
+
     return noised_model_input
 
 
