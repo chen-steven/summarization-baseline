@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import utils
 from models.outputs import ExtractorAbstractorOutput
 from models.t5_extractor_base import ExtractorBaseT5
+from models.t5_extractor_base import T5ExtractorEncoder
 
 class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     def __init__(self, config):
@@ -13,6 +14,10 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         self.sentence_classifier = nn.Linear(config.d_model, 1)
         self.attention_dropout = utils.NonInvertedDropout(0.6)
         self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
+        self.encoder_wrapper = T5ExtractorEncoder(config, self.encoder)
+
+    def get_encoder(self):
+        return self.encoder_wrapper
 
     def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
         combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
@@ -172,27 +177,32 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        hidden_states = encoder_outputs[0]
-        #hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
-        tokenizer = self.tokenizers[hidden_states.device.index]
-        # extract salient sentences
-        if self.config.sequential_extraction:
-            gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
-        else:
-            gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
+        if self.training:
+            hidden_states = encoder_outputs[0]
+            #hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
+            tokenizer = self.tokenizers[hidden_states.device.index]
+            # extract salient sentences
+            if self.config.sequential_extraction:
+                gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
+            else:
+                gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
 
-        new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
-        masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
+            new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
+            masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
+
+            new_attention_mask = new_attention_mask.long()
+            new_input_ids = input_ids * new_attention_mask + tokenizer.pad_token_id * (1 - new_attention_mask)
+            new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
+        else:
+            new_attention_mask = encoder_outputs.new_attention_mask
+            new_hidden_states = encoder_outputs.new_hidden_states
+            masked_hidden_states = encoder_outputs.masked_hidden_states
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
         if self.training:
             labels, label_attention_mask = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output)
-
-        new_attention_mask = new_attention_mask.long()
-        new_input_ids = real_input_ids * new_attention_mask + tokenizer.pad_token_id*(1-new_attention_mask)
-        new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right
