@@ -134,3 +134,4 @@ dmypy.json
 data_augmentation/*.pkl
 data_augmentation/*.json
 data/
+output_dirs/

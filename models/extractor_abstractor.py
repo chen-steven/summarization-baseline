@@ -147,7 +147,7 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
             )
 
         hidden_states = encoder_outputs[0]
-        print(labels)
+
         # extract salient sentences
         if self.config.sequential_extraction:
             gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
@@ -224,9 +224,13 @@ class ExtractorAbstractorT5(T5ForConditionalGeneration):
 #            loss = 0
 
             if self.config.sequential_extraction:
-                sentence_loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
-                for i, logits in enumerate(all_sentence_logits):
-                    loss += sentence_loss_fct(logits, sentence_labels[:, i])
+                sim_loss = nn.CosineSimilarity()
+                pooled_embedding = hidden_states.mean(1)
+                pooled_extractive = masked_hidden_states.mean(1)
+                loss -= sim_loss(pooled_embedding, pooled_extractive).mean()
+##                sentence_loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+#                for i, logits in enumerate(all_sentence_logits):
+#                    loss += sentence_loss_fct(logits, sentence_labels[:, i])
             else:
                 sentence_label_one_hot = utils.convert_one_hot(sentence_labels, sentence_logits.size(1)).float().detach()
                 loss += 2 * -torch.mean(torch.sum(

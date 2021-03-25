@@ -129,6 +129,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     def forward(
             self,
             input_ids=None,
+            real_input_ids=None,
             reference_input_ids=None,
             attention_mask=None,
             sentence_indicator=None,
@@ -148,6 +149,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             output_hidden_states=None,
             return_dict=None,
     ):
+
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -172,7 +174,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
         hidden_states = encoder_outputs[0]
         #hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
-
+        tokenizer = self.tokenizers[hidden_states.device.index]
         # extract salient sentences
         if self.config.sequential_extraction:
             gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
@@ -187,6 +189,10 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
         if self.training:
             labels, label_attention_mask = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output)
+
+        new_attention_mask = new_attention_mask.long()
+        new_input_ids = real_input_ids * new_attention_mask + tokenizer.pad_token_id*(1-new_attention_mask)
+        new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right
@@ -218,7 +224,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             past_key_values=past_key_values,
-            encoder_hidden_states=masked_hidden_states,
+            encoder_hidden_states=new_hidden_states,
             encoder_attention_mask=new_attention_mask,
             head_mask=decoder_head_mask,
             encoder_head_mask=head_mask,
@@ -256,7 +262,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             sim_loss_fct = nn.CosineSimilarity()
-            pooled_hidden_states = hidden_states.mean(1).detach() #detach()?
+            pooled_hidden_states = hidden_states.mean(1) #detach()?
             pooled_encoded_summary = masked_hidden_states.mean(1)
             #pooled_encoded_summary = encoded_summary[0].mean(1) if self.training else masked_hidden_states.mean(1)
             loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
@@ -280,16 +286,17 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         )
 
     def prepare_inputs_for_generation(
-            self, input_ids, decoder_sentence_indicator=None, decoder_sentence_labels=None, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
+            self, input_ids, decoder_real_input_ids=None, decoder_sentence_indicator=None, decoder_sentence_labels=None, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
     ):
         # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
         res = super().prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
-#        res['real_input_ids'] = real_input_ids
+        res['real_input_ids'] = decoder_real_input_ids
+
         res['sentence_indicator'] = decoder_sentence_indicator
         res['sentence_labels'] = decoder_sentence_labels
         return res
 
-#    def _prepare_encoder_decoder_kwargs_for_generation(self, input_ids: torch.LongTensor, model_kwargs):
-#        m_k = super()._prepare_encoder_decoder_kwargs_for_generation(input_ids, model_kwargs)
-#        m_k['real_input_ids'] = input_ids
-#        return m_k
+    def _prepare_encoder_decoder_kwargs_for_generation(self, input_ids: torch.LongTensor, model_kwargs):
+        m_k = super()._prepare_encoder_decoder_kwargs_for_generation(input_ids, model_kwargs)
+        m_k['real_input_ids'] = model_kwargs["decoder_real_input_ids"]
+        return m_k

@@ -575,7 +575,7 @@ def main():
 #            if split != "train" or not model_args.model_type.startswith('unsupervised'):
             model_inputs["labels"] = labels["input_ids"]
             model_inputs['sentence_indicator'] = sentence_indicator
- #           model_inputs['sentence_labels'] = sentence_labels
+            model_inputs['sentence_labels'] = sentence_labels
 
             return model_inputs
         return preprocess_function

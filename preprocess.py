@@ -244,8 +244,8 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     clean_text_sentences = []
 
     for _id in ids:
-#        noisy_text_sentences.append(noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id]))
-        noisy_text_sentences.append(sent_tokenize(article_map[_id]))
+        noisy_text_sentences.append(noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id]))
+#        noisy_text_sentences.append(sent_tokenize(article_map[_id]))
         clean_text_sentences.append(sent_tokenize(article_map[_id]))
             
 #    for _id in noisy_text:
@@ -296,14 +296,15 @@ def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length)
     #creates sentence indicator AND update sentence_labels inplace (ensures labels are within sentence count)
     sentence_indicator = _create_sentence_indicator(model_inputs['input_ids'], tokenizer, sep_token_id, sentence_labels) 
 
-    # with tokenizer.as_target_tokenizer():
-    #     labels = tokenizer(targets, max_length=max_target_length, padding="max_length", truncation=True)
-    #
-    # labels["input_ids"] = [
-    #     [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-    # ]
-    #
-    # model_inputs["labels"] = labels["input_ids"]
+    with tokenizer.as_target_tokenizer():
+        labels = tokenizer(targets, max_length=max_target_length, padding="max_length", truncation=True)
+    
+    labels["input_ids"] = [
+         [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+    ]
+    
+    model_inputs["labels"] = labels["input_ids"]
+    model_inputs["real_input_ids"] = model_inputs["input_ids"]
     model_inputs['sentence_indicator'] = sentence_indicator
     model_inputs['sentence_labels'] = sentence_labels
     return model_inputs

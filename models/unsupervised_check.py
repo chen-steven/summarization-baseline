@@ -147,7 +147,7 @@ class UnsupervisedCheck(T5ForConditionalGeneration):
             )
 
         hidden_states = encoder_outputs[0]
-        print(labels)
+
         # extract salient sentences
         if self.config.sequential_extraction:
             gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
