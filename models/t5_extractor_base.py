@@ -147,14 +147,15 @@ class T5ExtractorEncoder(T5Stack):
 
         return ExtractorModelOutput(
             last_hidden_state=outputs.last_hidden_state,
-            past_key_values=outputs.present_key_value_states,
+            past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
-            cross_attentions=outputs.cross_attention,
+            cross_attentions=outputs.cross_attentions,
             input_ids=input_ids,
             new_attention_mask=new_attention_mask,
             masked_hidden_states=masked_hidden_states,
-            new_hidden_states=new_hidden_states
+            new_hidden_states=new_hidden_states,
+            gumbel_output = gumbel_output
         )
 
 

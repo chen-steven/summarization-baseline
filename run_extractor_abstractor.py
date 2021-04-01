@@ -675,6 +675,13 @@ def main():
         decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
         decoded_extracted_preds = _postprocess(decoded_extracted_preds)
 
+        bertscore = load_metric("bertscore")
+        bertscore_result = bertscore.compute(predictions=decoded_preds, references=decoded_labels, lang="en")
+        bertscore_ex_result = bertscore.compute(predictions=decoded_extracted_preds, references=decoded_labels, lang="en")
+        print("Extractive:", bertscore_ex_result)
+        print("Abstractive:", bertscore_result)
+        
+
         if metric_name == "rouge":
             result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
             # Extract a few results from ROUGE

@@ -1,17 +1,17 @@
 from transformers import T5ForConditionalGeneration, AutoTokenizer
-from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import utils
 import copy
-from models.outputs import ExtractorAbstractorOutput
+from models.outputs import ExtractorAbstractorOutput, ExtractorModelOutput
 from models.t5_extractor_base import T5ExtractorEncoder
+
 
 class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
         self.attention_dropout = utils.NonInvertedDropout(0.6)
+        # multiple tokenizers required for distributed training
         self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
         encoder_config = copy.deepcopy(config)
         encoder_config.is_decoder = False
@@ -70,6 +70,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             # Convert encoder inputs in embeddings if needed
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
+                sentence_indicator=sentence_indicator,
                 attention_mask=attention_mask,
                 inputs_embeds=inputs_embeds,
                 head_mask=head_mask,
@@ -77,17 +78,20 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
-            encoder_outputs = BaseModelOutput(
+        #TODO: remove this
+        elif return_dict and not isinstance(encoder_outputs, ExtractorModelOutput):
+            encoder_outputs = ExtractorModelOutput(
                 last_hidden_state=encoder_outputs[0],
                 hidden_states=encoder_outputs[1] if len(encoder_outputs) > 1 else None,
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        if self.training:
+        if self.training or not isinstance(encoder_outputs, ExtractorModelOutput):
             hidden_states = encoder_outputs[0]
             #hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
             tokenizer = self.tokenizers[hidden_states.device.index]
+
+#            detached_hidden_states = hidden_states.detach()
             # extract salient sentences
             if self.config.sequential_extraction:
                 gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
@@ -95,6 +99,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
                 gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
 
             new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
+#            masked_hidden_states = new_attention_mask.unsqueeze(-1) * detached_hidden_states
             masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
             new_attention_mask = new_attention_mask.long()
@@ -104,6 +109,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             new_attention_mask = encoder_outputs.new_attention_mask
             new_hidden_states = encoder_outputs.new_hidden_states
             masked_hidden_states = encoder_outputs.masked_hidden_states
+            gumbel_output = encoder_outputs.gumbel_output
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
@@ -141,7 +147,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             past_key_values=past_key_values,
-            encoder_hidden_states=new_hidden_states,
+            encoder_hidden_states=new_hidden_states,#masked_hidden_states,
             encoder_attention_mask=new_attention_mask,
             head_mask=decoder_head_mask,
             encoder_head_mask=head_mask,
@@ -180,7 +186,8 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             sim_loss_fct = nn.CosineSimilarity()
             pooled_hidden_states = hidden_states.mean(1) #detach()?
-            pooled_encoded_summary = masked_hidden_states.mean(1)
+#            pooled_encoded_summary = masked_hidden_states.mean(1)
+            pooled_encoded_summary = new_hidden_states.mean(1)
             #pooled_encoded_summary = encoded_summary[0].mean(1) if self.training else masked_hidden_states.mean(1)
             loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
 
