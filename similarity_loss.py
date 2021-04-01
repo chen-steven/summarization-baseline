@@ -1,4 +1,5 @@
 from transformers import T5EncoderModel, AutoTokenizer
+from models import UnsupervisedDenoiseT5
 import torch
 from datasets import load_dataset, load_metric
 from preprocess import _create_sentence_indicator
@@ -47,7 +48,7 @@ def _create_sentence_embeddings(model, ids, model_input, sentence_indicators):
         sentences = torch.stack(sentences, dim=1)
         sentence_lens = torch.stack(sentence_lens, dim=1)
         sentence_lens = sentence_lens.clamp(min=1)
-        pooled_embedding = (hidden_states*inputs['attention_mask'].unsqueeze(-1)).mean(1).unsqueeze(1)
+        pooled_embedding = (hidden_states*inputs['attention_mask'].unsqueeze(-1)).sum(1).unsqueeze(1)
 
         sentence_mask = utils.get_sentence_mask(sentence_indicator, sentences.size(1)).float()
 
@@ -59,23 +60,25 @@ def _create_sentence_embeddings(model, ids, model_input, sentence_indicators):
             candidate_lens = cur_len.unsqueeze(1) + sentence_lens
             cur_embedding = candidates / candidate_lens
             scores = sim(cur_embedding, pooled_embedding)
-
+            
             scores = utils.mask_tensor(scores, sentence_mask)
             index = torch.argmax(scores)
             cur = candidates[range(1), index]
             cur_len = candidates[range(1), index]
+#            pooled_embedding -= sentences[range(1),index]
             sentence_mask[range(1), index] = 0
             l.append(index.item())
 
         d[ids[idx]] = l
 
-    pickle.dump(d, open('sim_oracle3.p', 'wb'))
+    pickle.dump(d, open('sim_oracle5.p', 'wb'))
     return d
 
 
 def similarity_oracle():
     torch.cuda.set_device(1)
-    model = T5EncoderModel.from_pretrained('t5-small').cuda()
+#    model = T5EncoderModel.from_pretrained('t5-small').cuda()
+    model = UnsupervisedDenoiseT5.from_pretrained('output_dirs/uns_denoise_debug6').encoder.cuda()
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained('t5-small')
     dataset = load_dataset('cnn_dailymail', '3.0.0')
@@ -103,7 +106,7 @@ def compute_metrics():
     metric = load_metric('rouge')
     labels = json.load(open('data/val_sentence_labels.json', 'r'))
 
-    pred_indices = pickle.load(open('sim_oracle3.p', 'rb'))
+    pred_indices = pickle.load(open('sim_oracle5.p', 'rb'))
     sentences = [nltk.sent_tokenize(inp) for inp in tqdm(inputs)]
 
     preds = []
@@ -113,7 +116,7 @@ def compute_metrics():
 
     tar = ['\n'.join(nltk.sent_tokenize(s)) for s in tqdm(targets)]
 
-    pred_evidence = [pred_indices[i] for i in ids]
+    pred_evidence = [sorted(pred_indices[i]) for i in ids]
     gt_evidence = [labels[i] for i in ids]
 
     result = metric.compute(predictions=preds, references=tar, use_stemmer=True)

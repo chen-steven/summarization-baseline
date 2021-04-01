@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import utils
 from models.outputs import ExtractorAbstractorOutput
 from models.t5_extractor_base import ExtractorBaseT5
+from models.t5_extractor_base import T5ExtractorEncoder, ExtractorModelOutput
 
 class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     def __init__(self, config):
@@ -13,6 +14,10 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         self.sentence_classifier = nn.Linear(config.d_model, 1)
         self.attention_dropout = utils.NonInvertedDropout(0.6)
         self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
+        self.encoder_wrapper = T5ExtractorEncoder(config, self.encoder, self.sentence_classifier)
+
+    def get_encoder(self):
+        return self.encoder_wrapper
 
     def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
         combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
@@ -40,7 +45,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
         return sentence_logits, new_embedding, new_len, sentence_mask, one_hot.squeeze(-1)
 
-    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels):
+    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels):        
         all_sentence_logits = []
         sentences = []
         sentence_lens = []
@@ -165,34 +170,43 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
-            encoder_outputs = BaseModelOutput(
+        elif return_dict and not isinstance(encoder_outputs, ExtractorModelOutput):
+            encoder_outputs = ExtractorModelOutput(
                 last_hidden_state=encoder_outputs[0],
                 hidden_states=encoder_outputs[1] if len(encoder_outputs) > 1 else None,
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        hidden_states = encoder_outputs[0]
-        #hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
-        tokenizer = self.tokenizers[hidden_states.device.index]
-        # extract salient sentences
-        if self.config.sequential_extraction:
-            gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
-        else:
-            gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
+        if self.training or not isinstance(encoder_outputs, ExtractorModelOutput):
+            hidden_states = encoder_outputs[0]
+            #hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
+            tokenizer = self.tokenizers[hidden_states.device.index]
 
-        new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
-        masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
+#            detached_hidden_states = hidden_states.detach()
+            # extract salient sentences
+            if self.config.sequential_extraction:
+                gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
+            else:
+                gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
+
+            new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
+#            masked_hidden_states = new_attention_mask.unsqueeze(-1) * detached_hidden_states
+            masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
+
+            new_attention_mask = new_attention_mask.long()
+            new_input_ids = input_ids * new_attention_mask + tokenizer.pad_token_id * (1 - new_attention_mask)
+            new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
+        else:
+            new_attention_mask = encoder_outputs.new_attention_mask
+            new_hidden_states = encoder_outputs.new_hidden_states
+            masked_hidden_states = encoder_outputs.masked_hidden_states
+            gumbel_output = encoder_outputs.gumbel_output
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
         if self.training:
             labels, label_attention_mask = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output)
-
-        new_attention_mask = new_attention_mask.long()
-        new_input_ids = real_input_ids * new_attention_mask + tokenizer.pad_token_id*(1-new_attention_mask)
-        new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right
@@ -224,7 +238,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             past_key_values=past_key_values,
-            encoder_hidden_states=new_hidden_states,
+            encoder_hidden_states=new_hidden_states,#masked_hidden_states,
             encoder_attention_mask=new_attention_mask,
             head_mask=decoder_head_mask,
             encoder_head_mask=head_mask,
@@ -263,7 +277,8 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             sim_loss_fct = nn.CosineSimilarity()
             pooled_hidden_states = hidden_states.mean(1) #detach()?
-            pooled_encoded_summary = masked_hidden_states.mean(1)
+#            pooled_encoded_summary = masked_hidden_states.mean(1)
+            pooled_encoded_summary = new_hidden_states.mean(1)
             #pooled_encoded_summary = encoded_summary[0].mean(1) if self.training else masked_hidden_states.mean(1)
             loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
 
