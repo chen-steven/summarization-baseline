@@ -14,13 +14,15 @@ class ExtractorModelOutput(BaseModelOutputWithPastAndCrossAttentions):
     masked_hidden_states: torch.FloatTensor = None
     new_attention_mask: torch.FloatTensor = None
     new_hidden_states: torch.FloatTensor = None
+    gumbel_output: torch.FloatTensor = None
 
 
 class T5ExtractorEncoder(nn.Module):
-    def __init__(self, config, encoder):
+    def __init__(self, config, encoder, sentence_classifier):
         super().__init__()
         self.config = config
         self.encoder = encoder
+        self.sentence_classifier = sentence_classifier
 
     def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
         combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
@@ -161,14 +163,15 @@ class T5ExtractorEncoder(nn.Module):
 
         return ExtractorModelOutput(
             last_hidden_state=outputs.last_hidden_state,
-            past_key_values=outputs.present_key_value_states,
+            past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
-            cross_attentions=outputs.cross_attention,
+            cross_attentions=outputs.cross_attentions,
             input_ids=input_ids,
             new_attention_mask=new_attention_mask,
             masked_hidden_states=masked_hidden_states,
-            new_hidden_states=new_hidden_states
+            new_hidden_states=new_hidden_states,
+            gumbel_output = gumbel_output
         )
 
 
