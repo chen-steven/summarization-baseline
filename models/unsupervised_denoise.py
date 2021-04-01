@@ -87,7 +87,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        hidden_states = encoder_outputs.hidden_states
+        hidden_states = encoder_outputs[0]
         new_attention_mask = encoder_outputs.new_attention_mask
         new_hidden_states = encoder_outputs.new_hidden_states
         masked_hidden_states = encoder_outputs.masked_hidden_states

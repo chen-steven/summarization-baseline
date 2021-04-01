@@ -114,7 +114,8 @@ class T5ExtractorEncoder(T5Stack):
             return_dict=None,
             extract_sentences=True
     ):
-        outputs = super()(
+
+        outputs = super().forward(
             input_ids=input_ids,
             attention_mask=attention_mask,
             encoder_hidden_states=encoder_hidden_states,
@@ -142,7 +143,7 @@ class T5ExtractorEncoder(T5Stack):
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output).long()
         new_input_ids = input_ids * new_attention_mask + self.config.pad_token_id * (1-new_attention_mask)
 
-        new_hidden_states = super()(new_input_ids, attention_mask=new_attention_mask)[0]
+        new_hidden_states = super().forward(new_input_ids, attention_mask=new_attention_mask)[0]
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
         return ExtractorModelOutput(

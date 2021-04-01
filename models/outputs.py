@@ -14,3 +14,4 @@ class ExtractorModelOutput(BaseModelOutputWithPastAndCrossAttentions):
     masked_hidden_states: torch.FloatTensor = None
     new_attention_mask: torch.FloatTensor = None
     new_hidden_states: torch.FloatTensor = None
+    gumbel_output: torch.FloatTensor = None
