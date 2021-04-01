@@ -1,26 +1,15 @@
-from transformers import T5ForConditionalGeneration, T5EncoderModel
-from transformers.modeling_outputs import BaseModelOutput, BaseModelOutputWithPastAndCrossAttentions, Seq2SeqLMOutput
+from transformers import T5ForConditionalGeneration
+from transformers.models.t5.modeling_t5 import T5Stack
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import utils
-import copy
-from models.outputs import ExtractorAbstractorOutput
-from dataclasses import dataclass
+from models.outputs import ExtractorModelOutput
 
-@dataclass
-class ExtractorModelOutput(BaseModelOutputWithPastAndCrossAttentions):
-    input_ids: torch.FloatTensor = None
-    masked_hidden_states: torch.FloatTensor = None
-    new_attention_mask: torch.FloatTensor = None
-    new_hidden_states: torch.FloatTensor = None
-
-
-class T5ExtractorEncoder(nn.Module):
-    def __init__(self, config, encoder):
-        super().__init__()
-        self.config = config
-        self.encoder = encoder
+class T5ExtractorEncoder(T5Stack):
+    def __init__(self, config, shared):
+        super().__init__(config, shared)
+        self.sentence_classifier = nn.Linear(config.d_model, 1)
 
     def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
         combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
@@ -62,14 +51,11 @@ class T5ExtractorEncoder(nn.Module):
         sentences = torch.stack(sentences, dim=1)
         sentence_lens = torch.stack(sentence_lens, dim=1)
         sentence_lens = sentence_lens.clamp(min=1)
-        #        zero_len_mask = sentence_lens == 0
-        #        sentence_lens = sentence_lens + zero_len_mask.float()
 
         cur_embedding = torch.zeros(sentences.size(0), sentences.size(-1)).cuda()
         cur_len = torch.zeros(sentence_lens.size(0), sentence_lens.size(-1)).cuda()
 
         selected_one_hot = torch.zeros(sentences.size(0), sentences.size(1)).cuda()
-        selected_one_hot1 = torch.zeros(sentences.size(0), sentences.size(1)).cuda()
         sentence_mask = utils.get_sentence_mask(sentence_indicator, sentences.size(1)).float()
 
         for i in range(self.config.extraction_k):
@@ -81,13 +67,9 @@ class T5ExtractorEncoder(nn.Module):
                                                                                                   sentence_labels[:,
                                                                                                   i] if sentence_labels is not None else None)
             selected_one_hot = selected_one_hot + one_hot
-            if i < 3:
-                selected_one_hot1 = selected_one_hot1 + one_hot
             all_sentence_logits.append(sentence_logits)
         selected_one_hot = selected_one_hot.clamp(max=1)
-        selectd_one_hot1 = selected_one_hot1.clamp(max=1)
-        if two_selections:
-            return selected_one_hot, selected_one_hot1, all_sentence_logits
+
         return selected_one_hot, all_sentence_logits
 
     def single_extraction(self, hidden_states, sentence_indicator, sentence_labels):
@@ -130,8 +112,9 @@ class T5ExtractorEncoder(nn.Module):
             output_attentions=None,
             output_hidden_states=None,
             return_dict=None,
+            extract_sentences=True
     ):
-        outputs = self.encoder(
+        outputs = super()(
             input_ids=input_ids,
             attention_mask=attention_mask,
             encoder_hidden_states=encoder_hidden_states,
@@ -146,6 +129,9 @@ class T5ExtractorEncoder(nn.Module):
             return_dict=return_dict,
         )
 
+        if not extract_sentences:
+            return outputs
+
         hidden_states = outputs[0]
 
         if self.config.sequential_extraction:
@@ -156,7 +142,7 @@ class T5ExtractorEncoder(nn.Module):
         new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output).long()
         new_input_ids = input_ids * new_attention_mask + self.config.pad_token_id * (1-new_attention_mask)
 
-        new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
+        new_hidden_states = super()(new_input_ids, attention_mask=new_attention_mask)[0]
         masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
 
         return ExtractorModelOutput(
@@ -170,6 +156,7 @@ class T5ExtractorEncoder(nn.Module):
             masked_hidden_states=masked_hidden_states,
             new_hidden_states=new_hidden_states
         )
+
 
 
 class ExtractorBaseT5(T5ForConditionalGeneration):

@@ -4,112 +4,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import utils
+import copy
 from models.outputs import ExtractorAbstractorOutput
-from models.t5_extractor_base import ExtractorBaseT5
 from models.t5_extractor_base import T5ExtractorEncoder
 
 class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
-        self.sentence_classifier = nn.Linear(config.d_model, 1)
         self.attention_dropout = utils.NonInvertedDropout(0.6)
         self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
-        self.encoder_wrapper = T5ExtractorEncoder(config, self.encoder)
-
-    def get_encoder(self):
-        return self.encoder_wrapper
-
-    def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
-        combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
-        combined_len = cur_len.unsqueeze(1) + sentence_lens
-
-        pooled_embeddings = combined_sentence_embeddings / combined_len
-        sentence_logits = self.sentence_classifier(pooled_embeddings).squeeze(-1)
-        sentence_logits = utils.mask_tensor(sentence_logits, sentence_mask.detach())
-
-        num_sentences = combined_sentence_embeddings.size(1)
-        if self.training:
-            if self.config.teacher_forcing and sentence_label is not None:
-                one_hot = utils.convert_single_one_hot(sentence_label, num_sentences)
-            else:
-                one_hot = F.gumbel_softmax(sentence_logits, hard=True)
-        else:
-            one_hot = torch.argmax(sentence_logits, -1)
-            one_hot = utils.convert_single_one_hot(one_hot, num_sentences)
-
-        sentence_mask = (1 - one_hot) * sentence_mask
-        one_hot = one_hot.unsqueeze(-1)
-
-        new_embedding = (one_hot * combined_sentence_embeddings).sum(dim=1)
-        new_len = (one_hot * combined_len).sum(dim=1)
-
-        return sentence_logits, new_embedding, new_len, sentence_mask, one_hot.squeeze(-1)
-
-    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels):
-        all_sentence_logits = []
-        sentences = []
-        sentence_lens = []
-        for i in range(sentence_indicator.max() + 1):
-            mask = (sentence_indicator == i).long().cuda()
-
-            sentence_embedding = torch.sum(hidden_states * mask.unsqueeze(-1), dim=1)
-            sentence_len = mask.sum(dim=1).view(-1, 1)
-            sentences.append(sentence_embedding)
-            sentence_lens.append(sentence_len)
-
-        sentences = torch.stack(sentences, dim=1)
-        sentence_lens = torch.stack(sentence_lens, dim=1)
-        sentence_lens = sentence_lens.clamp(min=1)
-        #        zero_len_mask = sentence_lens == 0
-        #        sentence_lens = sentence_lens + zero_len_mask.float()
-
-        cur_embedding = torch.zeros(sentences.size(0), sentences.size(-1)).cuda()
-        cur_len = torch.zeros(sentence_lens.size(0), sentence_lens.size(-1)).cuda()
-
-        selected_one_hot = torch.zeros(sentences.size(0), sentences.size(1)).cuda()
-        sentence_mask = utils.get_sentence_mask(sentence_indicator, sentences.size(1)).float()
-
-        for i in range(self.config.extraction_k):
-            sentence_logits, cur_embedding, cur_len, sentence_mask, one_hot = self.selection_step(cur_embedding,
-                                                                                                  cur_len,
-                                                                                                  sentences,
-                                                                                                  sentence_lens,
-                                                                                                  sentence_mask,
-                                                                                                  sentence_labels[:,
-                                                                                                  i] if sentence_labels is not None else None)
-            selected_one_hot = selected_one_hot + one_hot
-            all_sentence_logits.append(sentence_logits)
-        selected_one_hot = selected_one_hot.clamp(max=1)
-        return selected_one_hot, all_sentence_logits
-
-    def single_extraction(self, hidden_states, sentence_indicator, sentence_labels):
-        # extract salient sentences
-        sentences = []
-        for i in range(sentence_indicator.max() + 1):
-            mask = (sentence_indicator == i).long().cuda()
-            sentences.append(
-                torch.sum(hidden_states * mask.unsqueeze(-1), dim=1) / (mask.sum(dim=1).view(-1, 1) + 1e-12))
-
-        sentences = torch.stack(sentences, dim=1)
-
-        sentence_logits = self.sentence_classifier(sentences)
-        sentence_logits = utils.mask_sentences(sentence_logits, sentence_indicator)
-
-        if self.training:
-            if self.config.teacher_forcing:
-                gumbel_output = utils.convert_one_hot(sentence_labels, sentence_logits.size(1))
-            else:
-                gumbel_output = utils.gumbel_softmax_topk(sentence_logits.squeeze(-1), self.config.extraction_k)
-        else:
-            # gumbel_output = utils.gumbel_softmax_topk(sentence_logits, 5, hard=True, dim=-1)
-            #            gumbel_output = F.gumbel_softmax(sentence_logits, hard=True, dim=-1)[:, :, 1]
-            # gumbel_output = utils.convert_one_hot(sentence_labels, sentence_logits.size(1))
-            #            gumbel_output = torch.argmax(sentence_logits, -1)
-            #            gumbel_output = (torch.sigmoid(sentence_logits) > 0.5).float().squeeze(-1)
-            gumbel_output = torch.topk(sentence_logits.squeeze(-1), self.config.extraction_k, dim=-1)[1]
-            gumbel_output = utils.convert_one_hot(gumbel_output, sentence_logits.size(1))
-
-        return gumbel_output, sentence_logits
+        encoder_config = copy.deepcopy(config)
+        encoder_config.is_decoder = False
+        encoder_config.use_cache = False
+        encoder_config.is_encoder_decoder = False
+        self.encoder = T5ExtractorEncoder(encoder_config, self.shared)
 
     def _get_extractive_summary(self, reference_input_ids, reference_sentence_indicator, gumbel_output):
         tokenizer = self.tokenizers[reference_input_ids.device.index]
@@ -134,7 +42,6 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     def forward(
             self,
             input_ids=None,
-            real_input_ids=None,
             reference_input_ids=None,
             attention_mask=None,
             sentence_indicator=None,
@@ -310,3 +217,6 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         m_k = super()._prepare_encoder_decoder_kwargs_for_generation(input_ids, model_kwargs)
         m_k['real_input_ids'] = model_kwargs["decoder_real_input_ids"]
         return m_k
+
+if __name__ == "__main__":
+    model = UnsupervisedDenoiseT5.from_pretrained('t5-small')
