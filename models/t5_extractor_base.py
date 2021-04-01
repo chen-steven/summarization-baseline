@@ -155,7 +155,7 @@ class T5ExtractorEncoder(T5Stack):
             new_attention_mask=new_attention_mask,
             masked_hidden_states=masked_hidden_states,
             new_hidden_states=new_hidden_states,
-            gumbel_output = gumbel_output
+            gumbel_output=gumbel_output
         )
 
 

@@ -77,6 +77,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
+                extract_sentences=True
             )
         #TODO: remove this
         elif return_dict and not isinstance(encoder_outputs, ExtractorModelOutput):
@@ -86,30 +87,11 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
-        if self.training or not isinstance(encoder_outputs, ExtractorModelOutput):
-            hidden_states = encoder_outputs[0]
-            #hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
-            tokenizer = self.tokenizers[hidden_states.device.index]
-
-#            detached_hidden_states = hidden_states.detach()
-            # extract salient sentences
-            if self.config.sequential_extraction:
-                gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
-            else:
-                gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
-
-            new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
-#            masked_hidden_states = new_attention_mask.unsqueeze(-1) * detached_hidden_states
-            masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
-
-            new_attention_mask = new_attention_mask.long()
-            new_input_ids = input_ids * new_attention_mask + tokenizer.pad_token_id * (1 - new_attention_mask)
-            new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
-        else:
-            new_attention_mask = encoder_outputs.new_attention_mask
-            new_hidden_states = encoder_outputs.new_hidden_states
-            masked_hidden_states = encoder_outputs.masked_hidden_states
-            gumbel_output = encoder_outputs.gumbel_output
+        hidden_states = encoder_outputs.hidden_states
+        new_attention_mask = encoder_outputs.new_attention_mask
+        new_hidden_states = encoder_outputs.new_hidden_states
+        masked_hidden_states = encoder_outputs.masked_hidden_states
+        gumbel_output = encoder_outputs.gumbel_output
 
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
