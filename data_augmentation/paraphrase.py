@@ -17,7 +17,9 @@ def paraphrase(aug, data, ids):
         
     
 def main():
-    aug = naw.SynonymAug(aug_p=0.4)
+    print("Loading ppdb dataset...")
+    aug = naw.SynonymAug(aug_p=0.5, aug_src="ppdb", model_path="../data/ppdb-2.0-tldr", aug_max=100)
+    print("Augmentor initialized")
     dataset = load_dataset('cnn_dailymail', "3.0.0")
 
     train_data = dataset['train']
@@ -27,7 +29,7 @@ def main():
     print(len(train_data))
 #    articles = [nltk.sent_tokenize(inp) for inp in tqdm(inputs)]
 #    pickle.dump(articles, open('articles_sentences.json', 'wb'))
-    articles = pickle.load(open('articles_sentences.json', 'rb'))[80000:]
+    articles = pickle.load(open('articles_sentences.json', 'rb'))[:80000]
 
     d = {}
     for i, art in enumerate(tqdm(articles)):
@@ -48,7 +50,7 @@ def main():
  #   outputs = [p.get() for p in results]
  #   for x in outputs:
  #       d = {**d, **x}
-    pickle.dump(d, open('paraphrase1.pkl', 'wb'))
+    pickle.dump(d, open('ppdb_paraphrase.pkl', 'wb'))
 
 def fix_data():
     dataset = load_dataset('cnn_dailymail', "3.0.0")

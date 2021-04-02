@@ -230,7 +230,7 @@ def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1, sentence_la
 
         if index_map is not None:
             i_map = index_map[idx]
-            mapped_cur_indicator = [i_map[x] for x in cur_indicator]
+            mapped_cur_indicator = [i_map[x] if x in i_map else x for x in cur_indicator]
             sentence_indicators.append(mapped_cur_indicator)
         else:
             sentence_indicators.append(cur_indicator)
@@ -248,26 +248,38 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     noisy_text_sentences = []
     clean_text_sentences = []
 
-    index_maps = []
     for _id in ids:
-        noisy_sentences = noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id])
-        tmp_sentences = [(s,i) for s, i in enumerate(noisy_sentences)]
-        np.random.shuffle(tmp_sentences)
-        idx_map = {tup[1]: i for i, tup in enumerate(tmp_sentences)}
-        index_maps.append(idx_map)
-
-        noisy_text_sentences.append([tup[0] for tup in tmp_sentences])
+        #noisy_sentences = noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id])
+        noisy_sentences = sent_tokenize(article_map[_id])
         clean_text_sentences.append(sent_tokenize(article_map[_id]))
-
-
+        noisy_text_sentences.append(noisy_sentences)
 
     sep_token = "</s>"
     sep_token_id = 1
     clean_input = [f" {sep_token} ".join(s) for s in clean_text_sentences]
-    noised_input = [f" {sep_token} ".join(s) for s in noisy_text_sentences]
+    tmp_noised_input = [f" {sep_token} ".join(s) for s in noisy_text_sentences]
 
     clean_model_input = tokenizer(clean_input, max_length=max_length, padding="max_length", truncation=True)
-    noised_model_input = tokenizer(noised_input, max_length=max_length, padding="max_length", truncation=True)
+    tmp_noised_model_input = tokenizer(tmp_noised_input, max_length=max_length, padding="max_length", truncation=True)
+
+    sent_lens = []
+    for ii in tmp_noised_model_input['input_ids']:
+        sent_lens.append(sum(1 for x in ii if x == sep_token_id))
+
+    index_maps = []
+    shuffled_noisy_sentences = []
+    for idx, sent in enumerate(noisy_text_sentences):
+        shuffle_to = sent_lens[idx]-1
+        untruncated_sentences = sent[:shuffle_to]
+        tmp_sentences = [(s, i) for i, s in enumerate(untruncated_sentences)]
+        np.random.shuffle(tmp_sentences)
+        idx_map = {tup[1]: i for i, tup in enumerate(tmp_sentences)}
+        index_maps.append(idx_map)
+        
+        shuffled_noisy_sentences.append([tup[0] for tup in tmp_sentences] + sent[shuffle_to:])
+
+    shuffled_noised_input = [f" {sep_token} ".join(s) for s in shuffled_noisy_sentences]
+    noised_model_input = tokenizer(shuffled_noised_input, max_length=max_length, padding="max_length", truncation=True)
 
     sentence_indicator_clean = _create_sentence_indicator(clean_model_input['input_ids'], tokenizer, sep_token_id,
                                                           index_map=index_maps)

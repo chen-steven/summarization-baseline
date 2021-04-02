@@ -14,10 +14,10 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         self.sentence_classifier = nn.Linear(config.d_model, 1)
         self.attention_dropout = utils.NonInvertedDropout(0.6)
         self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
-        self.encoder_wrapper = T5ExtractorEncoder(config, self.encoder, self.sentence_classifier)
+#        self.encoder_wrapper = T5ExtractorEncoder(config, self.encoder, self.sentence_classifier)
 
     def get_encoder(self):
-        return self.encoder_wrapper
+        return self.encoder#_wrapper
 
     def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
         combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
@@ -194,6 +194,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
             new_attention_mask = new_attention_mask.long()
             new_input_ids = input_ids * new_attention_mask + tokenizer.pad_token_id * (1 - new_attention_mask)
+#            print(tokenizer.batch_decode(new_input_ids, skip_special_tokens=True))
             new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
         else:
             new_attention_mask = encoder_outputs.new_attention_mask
