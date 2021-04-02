@@ -1,0 +1,52 @@
+from transformers import RobertaForMaskedLM, AutoTokenizer
+from datasets import load_dataset
+import nltk
+from tqdm import tqdm
+from .. import utils
+import torch
+import json
+
+def main():
+    device = torch.device('cuda:0')
+    model = RobertaForMaskedLM.from_pretrained('roberta-base').to(device)
+    tokenizer = AutoTokenizer.from_pretrained('roberta-base')
+    dropout = utils.NonInvertedDropout(0.2, cuda=False)
+    dataset = load_dataset('cnn_dailymail', '3.0.0')
+    train_data = dataset['train']
+    inputs = train_data['article'][:10000]
+    targets = train_data['highlights']
+    ids = train_data['id']
+#    sentences = [nltk.sent_tokenize(inp) for inp in tqdm(inputs)]
+    sentences = json.load(open(
+    d = {}
+    for i, article in enumerate(tqdm(sentences)):
+        model_inputs = tokenizer(article, padding=True, truncation=True, return_tensors="pt")
+        attention_mask = model_inputs['attention_mask'].to(device)
+        #replace input ids with mask randomly
+        ones = torch.ones_like(model_inputs['input_ids']).long()
+        dropped_out = dropout(ones).long()
+        dropped_out = dropped_out*attention_mask + (1-attention_mask)
+
+        masked_input_ids = model_inputs['input_ids']*dropped_out + (1-dropped_out)*tokenizer.mask_token_id
+    
+#        masked_input_ids = masked_input_ids*model_inputs['attention_mask'] + (1-model_inputs['attention_mask'])*tokenizer.pad_token_id
+#        print(masked_input_ids)
+#        print(tokenizer.batch_decode(masked_input_ids))
+
+        output = model(input_ids=masked_input_ids.to(device), attention_mask=attention_mask)
+        second_highest = torch.topk(output[0], k=2)[1][:,:,1]
+
+        new_tokens = masked_input_ids*dropped_out + (1-dropped_out)*second_highest
+#        print(' '.join(tokenizer.batch_decode(new_tokens, skip_special_tokens=True)))
+#        print(' '.join(tokenizer.batch_decode(masked_input_ids, skip_special_tokens=True)))
+#        break
+        d[ids[i]] = tokenizer.batch_decode(new_tokens, skip_special_tokens=True)
+
+
+
+if __name__ == "__main__":
+    main()
+
+        
+
+    

@@ -1,0 +1,43 @@
+Reusing dataset cnn_dailymail (/ssd-playpen/home/stevench/.cache/huggingface/datasets/cnn_dailymail/3.0.0/3.0.0/0a01b1abede4f646130574f203de57a293ded8a7a11e3406a539453afdfeb2c0)
+  0%|          | 0/287113 [00:00<?, ?it/s]  0%|          | 0/287113 [00:00<?, ?it/s]
+287113
+Traceback (most recent call last):
+  File "paraphrase.py", line 55, in <module>
+    main()
+  File "paraphrase.py", line 34, in main
+    augmented = aug.augment(art, num_thread=4)
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nlpaug/base_augmenter.py", line 111, in augment
+    augmented_results.extend(self._parallel_augments(self.augment, mini_batch_data))
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nlpaug/base_augmenter.py", line 184, in _parallel_augments
+    results = pool.map(action_fx, data)
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 364, in map
+    return self._map_async(func, iterable, mapstar, chunksize).get()
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 48, in mapstar
+    return list(map(*args))
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nlpaug/base_augmenter.py", line 115, in augment
+    augmented_results = self._parallel_augment(action_fx, clean_data, n=n, num_thread=num_thread)
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nlpaug/base_augmenter.py", line 176, in _parallel_augment
+    results = pool.map(action_fx, [data] * n)
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 364, in map
+    return self._map_async(func, iterable, mapstar, chunksize).get()
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 48, in mapstar
+    return list(map(*args))
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nlpaug/augmenter/word/synonym.py", line 137, in substitute
+    candidates.extend(self.model.predict(pos[aug_idx][0], pos=word_pos))
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nlpaug/model/word_dict/wordnet.py", line 40, in predict
+    for synonym in self.model.synsets(word, pos=pos, lang=self.lang):
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nltk/corpus/reader/wordnet.py", line 1574, in synsets
+    return [
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nltk/corpus/reader/wordnet.py", line 1575, in <listcomp>
+    get_synset(p, offset)
+  File "/ssd-playpen/home/stevench/summarization-baseline/summ_venv38/lib/python3.8/site-packages/nltk/corpus/reader/wordnet.py", line 1375, in synset_from_pos_and_offset
+    assert synset._offset == offset
+AssertionError

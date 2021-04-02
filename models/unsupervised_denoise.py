@@ -13,6 +13,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         self.attention_dropout = utils.NonInvertedDropout(0.6)
         # multiple tokenizers required for distributed training
         self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
+
         encoder_config = copy.deepcopy(config)
         encoder_config.is_decoder = False
         encoder_config.use_cache = False
@@ -196,7 +197,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     ):
         # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
         res = super().prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
-        res['real_input_ids'] = decoder_real_input_ids
+        #res['real_input_ids'] = decoder_real_input_ids
 
         res['sentence_indicator'] = decoder_sentence_indicator
         res['sentence_labels'] = decoder_sentence_labels
@@ -204,7 +205,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
     def _prepare_encoder_decoder_kwargs_for_generation(self, input_ids: torch.LongTensor, model_kwargs):
         m_k = super()._prepare_encoder_decoder_kwargs_for_generation(input_ids, model_kwargs)
-        m_k['real_input_ids'] = model_kwargs["decoder_real_input_ids"]
+        #m_k['real_input_ids'] = model_kwargs["decoder_real_input_ids"]
         return m_k
 
 if __name__ == "__main__":
