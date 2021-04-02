@@ -678,19 +678,19 @@ def main():
         bertscore = load_metric("bertscore")
         bertscore_result = bertscore.compute(predictions=decoded_preds, references=decoded_labels, lang="en")
         bertscore_ex_result = bertscore.compute(predictions=decoded_extracted_preds, references=decoded_labels, lang="en")
-        print("Extractive:", bertscore_ex_result)
-        print("Abstractive:", bertscore_result)
+        logger.info("Extractive:", bertscore_ex_result.mean())
+        logger.info("Abstractive:", bertscore_result.mean())
         
 
         if metric_name == "rouge":
             result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
             # Extract a few results from ROUGE
-            print('***** Abstractive *****')
+            logger.info('***** Abstractive *****')
             json.dump(decoded_preds, open(os.path.join(training_args.output_dir, 'abstractive_summaries.json'), 'w'))
-            print(decoded_preds[:3])
-            print('***** Extractive *****')
+            logger.info(decoded_preds[:3])
+            logger.info('***** Extractive *****')
             json.dump(decoded_extracted_preds, open(os.path.join(training_args.output_dir, 'extractive_summaries.json'), 'w'))
-            print(decoded_extracted_preds[:3])
+            logger.info(decoded_extracted_preds[:3])
             extraction_results = metric.compute(predictions=decoded_extracted_preds, references=decoded_labels, use_stemmer=True)
             extraction_results = {"extraction_"+key: value for key,value in extraction_results.items()}
             result = {**result, **extraction_results}

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-
 from datasets import load_dataset
 from nltk import sent_tokenize
 from rouge_score import rouge_scorer
@@ -11,6 +10,7 @@ from typing import Any, Callable, Dict, List, NewType, Optional, Tuple, Union
 import multiprocess as mp
 from transformers.tokenization_utils_base import PaddingStrategy
 import os
+import numpy as np
 
 @dataclass
 class DataCollatorForExtractorAbstractor:
@@ -206,7 +206,7 @@ def preprocess_cnn(args):
 #             f.write('\n'.join(res))
 #     print(best)
 
-def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1, sentence_labels=None):
+def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1, sentence_labels=None, index_map=None):
     sentence_indicators = []
     for idx, cur_input_id in enumerate(input_ids):
         sent_count = 0
@@ -228,7 +228,12 @@ def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1, sentence_la
             cur_input_id.append(tokenizer.pad_token_id)
             cur_indicator.append(sent_count)
 
-        sentence_indicators.append(cur_indicator)
+        if index_map is not None:
+            i_map = index_map[idx]
+            mapped_cur_indicator = [i_map[x] for x in cur_indicator]
+            sentence_indicators.append(mapped_cur_indicator)
+        else:
+            sentence_indicators.append(cur_indicator)
 
     return sentence_indicators
 
@@ -243,14 +248,18 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     noisy_text_sentences = []
     clean_text_sentences = []
 
+    index_maps = []
     for _id in ids:
-        noisy_text_sentences.append(noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id]))
-#        noisy_text_sentences.append(sent_tokenize(article_map[_id]))
+        noisy_sentences = noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id])
+        tmp_sentences = [(s,i) for s, i in enumerate(noisy_sentences)]
+        np.random.shuffle(tmp_sentences)
+        idx_map = {tup[1]: i for i, tup in enumerate(tmp_sentences)}
+        index_maps.append(idx_map)
+
+        noisy_text_sentences.append([tup[0] for tup in tmp_sentences])
         clean_text_sentences.append(sent_tokenize(article_map[_id]))
-            
-#    for _id in noisy_text:
-#        noisy_text_sentences.append(noisy_text[_id])
-#        clean_text_sentences.append(sent_tokenize(article_map[_id]))
+
+
 
     sep_token = "</s>"
     sep_token_id = 1
@@ -260,7 +269,8 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     clean_model_input = tokenizer(clean_input, max_length=max_length, padding="max_length", truncation=True)
     noised_model_input = tokenizer(noised_input, max_length=max_length, padding="max_length", truncation=True)
 
-    sentence_indicator_clean = _create_sentence_indicator(clean_model_input['input_ids'], tokenizer, sep_token_id)
+    sentence_indicator_clean = _create_sentence_indicator(clean_model_input['input_ids'], tokenizer, sep_token_id,
+                                                          index_map=index_maps)
     sentence_indicator_noise = _create_sentence_indicator(noised_model_input['input_ids'], tokenizer, sep_token_id)
 
     noised_model_input['sentence_indicator'] = sentence_indicator_noise

@@ -134,7 +134,6 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     def forward(
             self,
             input_ids=None,
-            real_input_ids=None,
             reference_input_ids=None,
             attention_mask=None,
             sentence_indicator=None,
@@ -305,7 +304,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     ):
         # no need to pass input ids because encoder outputs is already computed from a prepare inputs for generation method
         res = super().prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, encoder_outputs=encoder_outputs, **kwargs)
-        res['real_input_ids'] = decoder_real_input_ids
+        #res['real_input_ids'] = decoder_real_input_ids
 
         res['sentence_indicator'] = decoder_sentence_indicator
         res['sentence_labels'] = decoder_sentence_labels
@@ -313,5 +312,5 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
     def _prepare_encoder_decoder_kwargs_for_generation(self, input_ids: torch.LongTensor, model_kwargs):
         m_k = super()._prepare_encoder_decoder_kwargs_for_generation(input_ids, model_kwargs)
-        m_k['real_input_ids'] = model_kwargs["decoder_real_input_ids"]
+        #m_k['real_input_ids'] = model_kwargs["decoder_real_input_ids"]
         return m_k
