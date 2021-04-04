@@ -237,9 +237,9 @@ def _create_sentence_indicator(input_ids, tokenizer, sep_token_id=1, sentence_la
 
     return sentence_indicators
 
-def _preprocess_denoise_train(examples, tokenizer, max_length):
+def _preprocess_denoise_train(examples, tokenizer, max_length, article_column):
     ids = examples['id']
-    articles = examples['article']
+    articles = examples[article_column]
     article_map = {ids[i]: articles[i] for i in range(len(ids))}
 #    l = [key for key in article_map]
 
@@ -311,9 +311,9 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     return noised_model_input
 
 
-def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length):
-    inputs = examples['article']
-    targets = examples['highlights']
+def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length, article_column, summary_column):
+    inputs = examples[article_column]
+    targets = examples[summary_column]
     ids = examples['id']
 
     sep_token = "</s>"
@@ -341,11 +341,11 @@ def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length)
     return model_inputs
 
 
-def preprocess_denoise(examples, tokenizer, max_length, max_target_length, split):
+def preprocess_denoise(examples, tokenizer, max_length, max_target_length, split, article_column, summary_column):
     if split == "train":
-        return _preprocess_denoise_train(examples, tokenizer, max_length)
+        return _preprocess_denoise_train(examples, tokenizer, max_length, article_column)
     else:
-        return _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length)
+        return _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length, article_column, summary_column)
 
 
 if __name__ == '__main__':

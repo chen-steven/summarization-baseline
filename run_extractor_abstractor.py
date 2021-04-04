@@ -526,7 +526,8 @@ def main():
     def get_preprocess_function(split="train"):
         if model_args.model_type == 'unsupervised_denoise':
             def _preprocess_function(examples):
-                return preprocess_denoise(examples, tokenizer, data_args.max_source_length, max_target_length, split)
+                return preprocess_denoise(examples, tokenizer, data_args.max_source_length, max_target_length, split,
+                                          text_column, summary_column)
             return _preprocess_function
 
         def preprocess_function(examples):

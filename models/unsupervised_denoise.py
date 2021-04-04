@@ -286,7 +286,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             sim_loss_fct = nn.CosineSimilarity()
             pooled_hidden_states = hidden_states.mean(1) #detach()?
 #            pooled_encoded_summary = masked_hidden_states.mean(1)
-            pooled_encoded_summary =encoded_hidden_states.mean(1)
+            pooled_encoded_summary = encoded_hidden_states.mean(1)
             pooled_non_masked_hidden_states = non_masked_hidden_states.mean(1)
 #            pooled_encoded_summary = new_hidden_states.mean(1)
             #pooled_encoded_summary = encoded_summary[0].mean(1) if self.training else masked_hidden_states.mean(1)
