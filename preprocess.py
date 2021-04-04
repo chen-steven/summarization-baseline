@@ -241,29 +241,33 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
     ids = examples['id']
     articles = examples['article']
     article_map = {ids[i]: articles[i] for i in range(len(ids))}
-    l = [key for key in article_map]
+#    l = [key for key in article_map]
 
-    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
+#    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
+    paraphrased_text = pickle.load(open('data_augmentation/ppdb_paraphrase.pkl', 'rb'))
 
     noisy_text_sentences = []
     clean_text_sentences = []
 
     for _id in ids:
         #noisy_sentences = noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id])
-        noisy_sentences = sent_tokenize(article_map[_id])
-        clean_text_sentences.append(sent_tokenize(article_map[_id]))
+        #noisy_sentences = sent_tokenize(article_map[_id])
+        clean_sentences = sent_tokenize(article_map[_id])
+        noisy_sentences = paraphrased_text[_id] if _id in paraphrased_text else sent_tokenize(article_map[_id])
+       
+        clean_text_sentences.append(clean_sentences)
         noisy_text_sentences.append(noisy_sentences)
 
     sep_token = "</s>"
     sep_token_id = 1
     clean_input = [f" {sep_token} ".join(s) for s in clean_text_sentences]
-    tmp_noised_input = [f" {sep_token} ".join(s) for s in noisy_text_sentences]
+    noised_input = [f" {sep_token} ".join(s) for s in noisy_text_sentences]
 
     clean_model_input = tokenizer(clean_input, max_length=max_length, padding="max_length", truncation=True)
-    tmp_noised_model_input = tokenizer(tmp_noised_input, max_length=max_length, padding="max_length", truncation=True)
+    noised_model_input = tokenizer(noised_input, max_length=max_length, padding="max_length", truncation=True)
 
     sent_lens = []
-    for ii in tmp_noised_model_input['input_ids']:
+    for ii in noised_model_input['input_ids']:
         sent_lens.append(sum(1 for x in ii if x == sep_token_id))
 
     index_maps = []
@@ -272,22 +276,27 @@ def _preprocess_denoise_train(examples, tokenizer, max_length):
         shuffle_to = sent_lens[idx]-1
         untruncated_sentences = sent[:shuffle_to]
         tmp_sentences = [(s, i) for i, s in enumerate(untruncated_sentences)]
+
         np.random.shuffle(tmp_sentences)
-        idx_map = {tup[1]: i for i, tup in enumerate(tmp_sentences)}
+#        idx_map = {tup[1]: i for i, tup in enumerate(tmp_sentences)}
+        idx_map = {i: tup[1] for i, tup in enumerate(tmp_sentences)}
         index_maps.append(idx_map)
         
         shuffled_noisy_sentences.append([tup[0] for tup in tmp_sentences] + sent[shuffle_to:])
 
     shuffled_noised_input = [f" {sep_token} ".join(s) for s in shuffled_noisy_sentences]
-    noised_model_input = tokenizer(shuffled_noised_input, max_length=max_length, padding="max_length", truncation=True)
+    shuffled_noised_model_input = tokenizer(shuffled_noised_input, max_length=max_length, padding="max_length", truncation=True)
 
-    sentence_indicator_clean = _create_sentence_indicator(clean_model_input['input_ids'], tokenizer, sep_token_id,
-                                                          index_map=index_maps)
+    sentence_indicator_clean = _create_sentence_indicator(clean_model_input['input_ids'], tokenizer, sep_token_id)
+                                                          #index_map=index_maps)
     sentence_indicator_noise = _create_sentence_indicator(noised_model_input['input_ids'], tokenizer, sep_token_id)
+
+    shuffled_sentence_indicator_noise = _create_sentence_indicator(shuffled_noised_model_input['input_ids'], tokenizer, sep_token_id, index_map=index_maps)
 
     noised_model_input['sentence_indicator'] = sentence_indicator_noise
     noised_model_input['reference_input_ids'] = clean_model_input['input_ids']
-    #noised_model_input['reference_attention_mask'] = clean_model_input['attention_mask']
+    noised_model_input['shuffled_input_ids'] = shuffled_noised_model_input['input_ids']
+    noised_model_input['shuffled_sentence_indicator'] = shuffled_sentence_indicator_noise
     noised_model_input['reference_sentence_indicator'] = sentence_indicator_clean
 
     targets = examples['highlights']

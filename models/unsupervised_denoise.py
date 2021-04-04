@@ -14,10 +14,10 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         self.sentence_classifier = nn.Linear(config.d_model, 1)
         self.attention_dropout = utils.NonInvertedDropout(0.6)
         self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
-#        self.encoder_wrapper = T5ExtractorEncoder(config, self.encoder, self.sentence_classifier)
+        self.encoder_wrapper = T5ExtractorEncoder(config, self.encoder, self.sentence_classifier)
 
     def get_encoder(self):
-        return self.encoder#_wrapper
+        return self.encoder_wrapper
 
     def selection_step(self, cur_sum, cur_len, sentence_sums, sentence_lens, sentence_mask, sentence_label=None):
         combined_sentence_embeddings = cur_sum.unsqueeze(1) + sentence_sums
@@ -135,9 +135,11 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             self,
             input_ids=None,
             reference_input_ids=None,
+            shuffled_input_ids=None,
             attention_mask=None,
             sentence_indicator=None,
             reference_sentence_indicator=None,
+            shuffled_sentence_indicator=None,
             sentence_labels=None,
             decoder_input_ids=None,
             decoder_attention_mask=None,
@@ -181,20 +183,26 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             #hidden_states_non_pad = attention_mask.unsqueeze(-1)*hidden_states
             tokenizer = self.tokenizers[hidden_states.device.index]
 
-#            detached_hidden_states = hidden_states.detach()
             # extract salient sentences
             if self.config.sequential_extraction:
                 gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
             else:
                 gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
 
-            new_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
+            new_attention_mask = utils.convert_attention_mask(shuffled_sentence_indicator if self.training else sentence_indicator, gumbel_output)
+            original_selected_attention_mask = utils.convert_attention_mask(sentence_indicator, gumbel_output)
 #            masked_hidden_states = new_attention_mask.unsqueeze(-1) * detached_hidden_states
-            masked_hidden_states = new_attention_mask.unsqueeze(-1) * hidden_states
+            masked_hidden_states = original_selected_attention_mask.unsqueeze(-1) * hidden_states
+            non_masked_hidden_states = (1-original_selected_attention_mask).unsqueeze(-1)*hidden_states
 
+            
+            selected_input_ids = input_ids * original_selected_attention_mask + (1-original_selected_attention_mask)*tokenizer.pad_token_id
+
+            encoded_hidden_states = self.encoder(selected_input_ids.long(), attention_mask=original_selected_attention_mask.long())[0]
             new_attention_mask = new_attention_mask.long()
-            new_input_ids = input_ids * new_attention_mask + tokenizer.pad_token_id * (1 - new_attention_mask)
-#            print(tokenizer.batch_decode(new_input_ids, skip_special_tokens=True))
+            new_input_ids = (shuffled_input_ids if self.training else input_ids) * new_attention_mask + tokenizer.pad_token_id * (1 - new_attention_mask)
+            
+            #print("Shuffled", tokenizer.batch_decode(new_input_ids, skip_special_tokens=True))
             new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
         else:
             new_attention_mask = encoder_outputs.new_attention_mask
@@ -278,9 +286,15 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             sim_loss_fct = nn.CosineSimilarity()
             pooled_hidden_states = hidden_states.mean(1) #detach()?
 #            pooled_encoded_summary = masked_hidden_states.mean(1)
-            pooled_encoded_summary = new_hidden_states.mean(1)
+            pooled_encoded_summary =encoded_hidden_states.mean(1)
+            pooled_non_masked_hidden_states = non_masked_hidden_states.mean(1)
+#            pooled_encoded_summary = new_hidden_states.mean(1)
             #pooled_encoded_summary = encoded_summary[0].mean(1) if self.training else masked_hidden_states.mean(1)
-            loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
+            if self.config.use_max_margin_sim_loss:
+                sim_loss = self.config.max_margin - sim_loss_fct(pooled_hidden_states, pooled_encoded_summary) + sim_loss_fct(pooled_hidden_states, pooled_non_masked_hidden_states)
+                loss += sim_loss.mean()
+            else:
+                loss -= (sim_loss_fct(pooled_hidden_states, pooled_encoded_summary)).mean()
 
         if not return_dict:
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
