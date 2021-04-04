@@ -34,7 +34,8 @@ def main():
     d = {}
     for i, art in enumerate(tqdm(articles)):
         augmented = aug.augment(art)
-        d[ids[i]] = ' '.join(augmented)
+#        d[ids[i]] = ' '.join(augmented)
+        d[ids[i]] = augmented
 
 #    num_splits = 10
 #    split = len(articles)//num_splits

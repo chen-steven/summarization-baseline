@@ -152,6 +152,18 @@ class ModelArguments:
             "help": "Use unsupervised training pipeline"
             }
     )
+    use_max_margin_sim_loss: bool = field(
+        default=False,
+        metadata={
+            "help": "Use max margin loss for cosine similarity"
+        }
+    )
+    max_margin: float = field(
+        default=0.1,
+        metadata={
+            "help": "Margin used in max margin cosine similarity loss"
+        }
+    )
     
 
 @dataclass
@@ -402,11 +414,14 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    
+
     config.teacher_forcing = model_args.teacher_forcing                                                                                                                                
     config.extraction_k = model_args.extraction_k                                                                                                                                    
     config.sequential_extraction = model_args.sequential_extraction                                                                                                                   
     config.mean_pool_similarity = model_args.mean_pool_similarity
+    config.use_max_margin_sim_loss = model_args.use_max_margin_sim_loss
+    config.max_margin = model_args.max_margin
+
     
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
@@ -684,9 +699,13 @@ def main():
         bertscore = load_metric("bertscore")
         bertscore_result = bertscore.compute(predictions=decoded_preds, references=decoded_labels, lang="en")
         bertscore_ex_result = bertscore.compute(predictions=decoded_extracted_preds, references=decoded_labels, lang="en")
-        logger.info("Extractive:", bertscore_ex_result.mean())
-        logger.info("Abstractive:", bertscore_result.mean())
-        
+        for key in ['precision', 'f1', 'recall']:
+            val = bertscore_result[key]
+            val_ex = bertscore_ex_result[key]
+            bertscore_result[key] = sum(val)/len(val)
+            bertscore_ex_result[key] = sum(val_ex)/len(val_ex)
+        logger.info("Extractive:", bertscore_ex_result)
+        logger.info("Abstractive:", bertscore_result)
 
         if metric_name == "rouge":
             result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)

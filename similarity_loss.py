@@ -9,6 +9,7 @@ import os
 import pickle
 import json
 import utils
+import numpy as np
 from models.metrics import ExtractionScorer
 
 def _get_val_article_sentences():
@@ -77,8 +78,8 @@ def _create_sentence_embeddings(model, ids, model_input, sentence_indicators):
 
 def similarity_oracle():
     torch.cuda.set_device(1)
-#    model = T5EncoderModel.from_pretrained('t5-small').cuda()
-    model = UnsupervisedDenoiseT5.from_pretrained('output_dirs/uns_denoise_debug6').encoder.cuda()
+    model = T5EncoderModel.from_pretrained('t5-small').cuda()
+#    model = UnsupervisedDenoiseT5.from_pretrained('output_dirs/uns_denoise_debug6').encoder.cuda()
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained('t5-small')
     dataset = load_dataset('cnn_dailymail', '3.0.0')
@@ -86,6 +87,8 @@ def similarity_oracle():
     ids = val_dataset['id']
     articles = val_dataset['article']
     sentences = _get_val_article_sentences()
+    for i in ids:
+        np.random.shuffle(sentences[i])
     sep_token = "</s>"
     sep_token_id = 1
     inputs = [f" {sep_token} ".join(sentences[i]) for i in ids]
@@ -126,5 +129,5 @@ def compute_metrics():
     print(res)
 
 if __name__ == "__main__":
-#    similarity_oracle()
+    #similarity_oracle()
     compute_metrics()
