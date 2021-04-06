@@ -700,6 +700,8 @@ def main():
             val_ex = bertscore_ex_result[key]
             bertscore_result[key] = sum(val)/len(val)
             bertscore_ex_result[key] = sum(val_ex)/len(val_ex)
+        print('Extractive', bertscore_ex_result)
+        print('Abstractive', bertscore_result)
         logger.info("Extractive:", bertscore_ex_result)
         logger.info("Abstractive:", bertscore_result)
 

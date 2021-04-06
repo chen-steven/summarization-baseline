@@ -67,6 +67,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         cur_len = torch.zeros(sentence_lens.size(0), sentence_lens.size(-1)).cuda()
 
         selected_one_hot = torch.zeros(sentences.size(0), sentences.size(1)).cuda()
+        selected_one_hot1 = torch.zeros(sentences.size(0), sentences.size(1)).cuda()
         sentence_mask = utils.get_sentence_mask(sentence_indicator, sentences.size(1)).float()
 
         for i in range(self.config.extraction_k):
@@ -77,10 +78,13 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
                                                                                                   sentence_mask,
                                                                                                   sentence_labels[:,
                                                                                                   i] if sentence_labels is not None else None)
+
+            if i < 3:
+                selected_one_hot1 = selected_one_hot1 + one_hot
             selected_one_hot = selected_one_hot + one_hot
             all_sentence_logits.append(sentence_logits)
         selected_one_hot = selected_one_hot.clamp(max=1)
-        return selected_one_hot, all_sentence_logits
+        return selected_one_hot, selected_one_hot1, all_sentence_logits
 
     def single_extraction(self, hidden_states, sentence_indicator, sentence_labels):
         # extract salient sentences
@@ -185,7 +189,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
             # extract salient sentences
             if self.config.sequential_extraction:
-                gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
+                gumbel_output, gumbel_output1, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
             else:
                 gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
 
@@ -198,11 +202,11 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             
             selected_input_ids = input_ids * original_selected_attention_mask + (1-original_selected_attention_mask)*tokenizer.pad_token_id
 
-            encoded_hidden_states = self.encoder(selected_input_ids.long(), attention_mask=original_selected_attention_mask.long())[0]
+#            encoded_hidden_states = self.encoder(selected_input_ids.long(), attention_mask=original_selected_attention_mask.long())[0]
             new_attention_mask = new_attention_mask.long()
             new_input_ids = (shuffled_input_ids if self.training else input_ids) * new_attention_mask + tokenizer.pad_token_id * (1 - new_attention_mask)
             
-            #print("Shuffled", tokenizer.batch_decode(new_input_ids, skip_special_tokens=True))
+#            print("Shuffled", tokenizer.batch_decode(new_input_ids, skip_special_tokens=True))
             new_hidden_states = self.encoder(new_input_ids, attention_mask=new_attention_mask)[0]
         else:
             new_attention_mask = encoder_outputs.new_attention_mask
@@ -214,7 +218,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             torch.cuda.set_device(self.decoder.first_device)
 
         if self.training:
-            labels, label_attention_mask = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output)
+            labels, label_attention_mask = self._get_extractive_summary(reference_input_ids, reference_sentence_indicator, gumbel_output1)
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right
@@ -285,8 +289,8 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             sim_loss_fct = nn.CosineSimilarity()
             pooled_hidden_states = hidden_states.mean(1) #detach()?
-#            pooled_encoded_summary = masked_hidden_states.mean(1)
-            pooled_encoded_summary = encoded_hidden_states.mean(1)
+            pooled_encoded_summary = masked_hidden_states.mean(1)
+#            pooled_encoded_summary = encoded_hidden_states.mean(1)
             pooled_non_masked_hidden_states = non_masked_hidden_states.mean(1)
 #            pooled_encoded_summary = new_hidden_states.mean(1)
             #pooled_encoded_summary = encoded_summary[0].mean(1) if self.training else masked_hidden_states.mean(1)
