@@ -4,6 +4,10 @@ import torch
 from torch.utils.data import DataLoader
 from nltk import sent_tokenize
 from tqdm import tqdm
+import pickle
+import json
+import os
+from analysis import compute_extraction_performance
 
 GPT_MODEL = "gpt2"
 EOS_TOKEN = "<|endoftext|>"
@@ -12,52 +16,96 @@ EOS_TOKEN_ID = 50256
 
 class SentenceProbability(torch.nn.Module):
     def __init__(self):
+        super().__init__()
         self.gpt2 = GPT2LMHeadModel.from_pretrained(GPT_MODEL)
     def forward(self,
                 input_ids=None,
                 attention_mask=None,
                 sentence_mask=None):
-        logits = self.gpt2(input_ids, attention_mask=attention_mask)
+        attention_mask = (input_ids != EOS_TOKEN_ID).long()
+        logits = self.gpt2(input_ids, attention_mask=attention_mask)[0]
         batch_size, seq_len = logits.size(0), logits.size(1)
         log_probs = torch.log_softmax(logits, -1)
         flattened_probs = log_probs.view(-1, log_probs.size(-1))
         input_probs = flattened_probs[range(flattened_probs.size(0)), input_ids.view(-1)].view(batch_size, seq_len)
         log_prob = (sentence_mask * input_probs).sum(-1)
-        return log_prob
+        doc_log_prob = ((1-sentence_mask)*(attention_mask*input_probs)).sum(-1)
+        pmi = log_prob - doc_log_prob
+        return pmi
+
 
 def create_dataset(split="train"):
+    path = f'data/pmi_{split}_features1.json'
+
     tokenizer = AutoTokenizer.from_pretrained(GPT_MODEL)
-    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    tokenizer.pad_token = tokenizer.eos_token
     dataset = load_dataset('cnn_dailymail', "3.0.0")
     cur_data = dataset[split]
-    articles = cur_data['article'][:10]
+    articles = cur_data['article']
+
+#    if os.path.exists(path):
+#        return json.load(open(path, 'r')), cur_data['id']
 
     all_sentences = [sent_tokenize(inp) for inp in articles]
+    all_sentences = [x[:60] for x in all_sentences]
     data = []
 
     for i, sents in enumerate(tqdm(all_sentences)):
         suffix = f" {EOS_TOKEN} {articles[i]}"
         tmp = [x + suffix for x in sents]
-        model_input = tokenizer(tmp, padding=True, truncation=True)
+        model_input = tokenizer(tmp, padding="longest", max_length=512, truncation=True)
         sentence_mask = []
         for input_id in model_input['input_ids']:
             s_mask = [1] * len(input_id)
             for idx, ii in enumerate(input_id):
                 s_mask[idx] = 0
-                if ii == EOS_TOKEN_ID: break
+                if ii == EOS_TOKEN_ID:
+                    del input_id[idx]
+                    del s_mask[idx]
+                    s_mask.append(1)
+                    input_id.append(EOS_TOKEN_ID)
+                    break
 
             sentence_mask.append(s_mask)
         model_input['sentence_mask'] = sentence_mask
         data.append(model_input)
 
-    return data
+#    json.dump(data, open(path, 'w'))
+    return data, cur_data['id']
+
+def extraction_performance():
+    preds = torch.load('data/val_pmi.pt')
+    topk = {}
+    for key in preds:
+        num_select = min(3, len(preds[key]))
+        topk[key] = torch.tensor(preds[key]).topk(k=num_select)[1].long().tolist()
+        topk[key] = sorted(topk[key])
+
+    res, ex_res = compute_extraction_performance(topk, split="validation")
+    print(res)
+    print(ex_res)
+        
+        
+        
+
+    
+    
 
 def main():
-    model = SentenceProbability()
-    dataset = create_dataset()
-    for x in dataset:
-        inp = {key: torch.tensor(val) for key, val in x.items()}
-    print(model(**inp))
+    model = SentenceProbability().cuda()
+    model = torch.nn.DataParallel(model)
+    model.eval()
+    print('Training:',model.training)
+
+    tensor_map = {}
+    dataset, ids = create_dataset('validation')
+    for i, x in enumerate(tqdm(dataset)):
+        inp = {key: torch.tensor(val).cuda() for key, val in x.items()}
+        with torch.no_grad():
+            tensor_map[ids[i]] = model(**inp).tolist()
+
+    torch.save(tensor_map, 'data/val_pmi.pt')
+
 
     #print(dataset[0])
     # create sentence indicator and compute PMI for every sentence to the document
@@ -65,7 +113,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+#    main()
+    extraction_performance()
 
 
 

@@ -79,6 +79,41 @@ def main(args):
 
     json.dump(sentence_ranks, open('sentence_prob_ranks2.json', 'w'))
 
+def compute_extraction_performance(preds, split="train"):
+    scorer = ExtractionScorer()
+    metric = load_metric('rouge')
+    labels = json.load(open(f'data/{split}_sentence_labels.json', 'r'))
+
+    dataset = load_dataset('cnn_dailymail', '3.0.0')
+    train_dataset = dataset[split]
+    inputs = train_dataset['article']
+    targets = train_dataset['highlights']
+
+    ids = train_dataset['id']
+    data_dict = {uid: (inputs[i], targets[i]) for i, uid in enumerate(ids)}
+
+    pred_list = []
+    label_list = []
+    pred_sum = []
+    target_sum = []
+
+    for key in preds:
+        lab = labels[key]
+        pred = preds[key]
+        pred_list.append(pred)
+        label_list.append(lab)
+        inp, tar = data_dict[key]
+        sentences = nltk.sent_tokenize(inp)
+        pred_sum.append("\n".join(sentences[i] for i in pred))
+        target_sum.append("\n".join(sent for sent in nltk.sent_tokenize(tar)))
+
+    result = metric.compute(predictions=pred_sum, references=target_sum, use_stemmer=True)
+    result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
+
+    ex_res = scorer.compute_metric(pred_list, label_list, postprocess=False)
+    return result, ex_res
+    
+        
 def compute_extraction_metrics():
     scorer = ExtractionScorer()
     metric = load_metric('rouge')
