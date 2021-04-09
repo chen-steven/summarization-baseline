@@ -57,6 +57,8 @@ class DataCollatorForExtractorAbstractor:
         sentence_labels = [feature["sentence_labels"] for feature in features] if "sentence_labels" in features[0].keys() else None
         sentence_indicators = [feature['sentence_indicator'] for feature in features]
         reference_sentence_indicators = [feature['reference_sentence_indicator'] for feature in features] if 'reference_sentence_indicator' in features[0].keys() else None
+        pmi_features = [feature['pmi_features'] for feature in features] if 'pmi_features' in features[0].keys() else None
+
         # We have to pad the labels before calling `tokenizer.pad` as this method won't pad them and needs them of the
         # same length to return tensors.
         if labels is not None:
@@ -69,6 +71,7 @@ class DataCollatorForExtractorAbstractor:
                 )
 
         max_sentence_indicator_length = max(len(l) for l in sentence_indicators)
+        max_sentences = max(max(l) for l in sentence_indicators)
         for feature in features:
             remainder = [feature['sentence_indicator'][-1]]*(max_sentence_indicator_length - len(feature['sentence_indicator']))
             feature['sentence_indicator'] = feature['sentence_indicator'] + remainder
@@ -88,6 +91,12 @@ class DataCollatorForExtractorAbstractor:
             for feature in features:
                 remainder = [self.sentence_label_pad_id] * (max_sentence_label_length - len(feature['sentence_labels']))
                 feature['sentence_labels'] = feature['sentence_labels'] + remainder
+
+        if pmi_features is not None:
+            for feature in features:
+                feature['pmi_features'] = feature['pmi_features'][:max_sentences]
+                remainder = [0]*(max_sentences - len(feature['pmi_features']))
+                feature['pmi_features'] = feature['pmi_features'] + remainder
 
         features = self.tokenizer.pad(
             features,
@@ -245,18 +254,20 @@ def _preprocess_denoise_train(examples, tokenizer, max_length, article_column):
 
 #    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
     paraphrased_text = pickle.load(open('data_augmentation/ppdb_paraphrase.pkl', 'rb'))
-
+    pmi_features = torch.load('data/train_pmi.pt')
     noisy_text_sentences = []
     clean_text_sentences = []
+    pmi_features = []
 
     for _id in ids:
         #noisy_sentences = noisy_text[_id] if _id in noisy_text else sent_tokenize(article_map[_id])
-        noisy_sentences = sent_tokenize(article_map[_id])
+        #noisy_sentences = sent_tokenize(article_map[_id])
         clean_sentences = sent_tokenize(article_map[_id])
-#        noisy_sentences = paraphrased_text[_id] if _id in paraphrased_text else sent_tokenize(article_map[_id])
+        noisy_sentences = paraphrased_text[_id] if _id in paraphrased_text else sent_tokenize(article_map[_id])
        
         clean_text_sentences.append(clean_sentences)
         noisy_text_sentences.append(noisy_sentences)
+        pmi_features.append(pmi_features[_id])
 
     sep_token = "</s>"
     sep_token_id = 1
@@ -298,15 +309,15 @@ def _preprocess_denoise_train(examples, tokenizer, max_length, article_column):
     noised_model_input['shuffled_input_ids'] = shuffled_noised_model_input['input_ids']
     noised_model_input['shuffled_sentence_indicator'] = shuffled_sentence_indicator_noise
     noised_model_input['reference_sentence_indicator'] = sentence_indicator_clean
+    noised_model_input['pmi_features'] = pmi_features
+    targets = examples['highlights']
+    with tokenizer.as_target_tokenizer():
+        labels = tokenizer(targets, max_length=200, padding="max_length", truncation=True)#
 
-#    targets = examples['highlights']
-#    with tokenizer.as_target_tokenizer():
-#        labels = tokenizer(targets, max_length=200, padding="max_length", truncation=True)#
-
-#    labels["input_ids"] = [
-#        [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-#    ]
-#    noised_model_input['labels'] = labels['input_ids']
+    labels["input_ids"] = [
+        [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+    ]
+    noised_model_input['labels'] = labels['input_ids']
 
     return noised_model_input
 

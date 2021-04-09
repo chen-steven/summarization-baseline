@@ -164,6 +164,13 @@ class ModelArguments:
             "help": "Margin used in max margin cosine similarity loss"
         }
     )
+    use_pmi: bool = field(
+        default=False,
+        metadata={
+            "help": "Use pointwise mutual information features"
+        }
+    )
+
     
 
 @dataclass
@@ -417,6 +424,7 @@ def main():
 
     config.use_max_margin_sim_loss = model_args.use_max_margin_sim_loss
     config.max_margin = model_args.max_margin
+    config.use_pmi = model_args.use_pmi
     
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,

@@ -11,7 +11,7 @@ from models.t5_extractor_base import T5ExtractorEncoder, ExtractorModelOutput
 class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
-        self.sentence_classifier = nn.Linear(config.d_model, 1)
+        self.sentence_classifier = nn.Linear(config.d_model + 1 if config.use_pmi else config.d_model, 1)
         self.attention_dropout = utils.NonInvertedDropout(0.6)
         self.tokenizers = [AutoTokenizer.from_pretrained('t5-small') for _ in range(4)]
         self.encoder_wrapper = T5ExtractorEncoder(config, self.encoder, self.sentence_classifier)
@@ -45,7 +45,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
         return sentence_logits, new_embedding, new_len, sentence_mask, one_hot.squeeze(-1)
 
-    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels):        
+    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels, pmi_features=None):
         all_sentence_logits = []
         sentences = []
         sentence_lens = []
@@ -60,6 +60,10 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         sentences = torch.stack(sentences, dim=1)
         sentence_lens = torch.stack(sentence_lens, dim=1)
         sentence_lens = sentence_lens.clamp(min=1)
+
+        if pmi_features is not None:
+            pmi_features = pmi_features[:, :sentence_indicator.max()]
+            sentences = torch.cat((sentences, pmi_features), dim=-1)
         #        zero_len_mask = sentence_lens == 0
         #        sentence_lens = sentence_lens + zero_len_mask.float()
 
@@ -140,6 +144,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
             input_ids=None,
             reference_input_ids=None,
             shuffled_input_ids=None,
+            pmi_features=None,
             attention_mask=None,
             sentence_indicator=None,
             reference_sentence_indicator=None,
@@ -189,7 +194,7 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
 
             # extract salient sentences
             if self.config.sequential_extraction:
-                gumbel_output, gumbel_output1, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
+                gumbel_output, gumbel_output1, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels, pmi_features)
             else:
                 gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
 
