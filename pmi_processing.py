@@ -34,22 +34,23 @@ class SentenceProbability(torch.nn.Module):
         return pmi
 
 
-def create_dataset(split="train"):
+def create_dataset(model, split="train"):
     path = f'data/pmi_{split}_features1.json'
 
     tokenizer = AutoTokenizer.from_pretrained(GPT_MODEL)
     tokenizer.pad_token = tokenizer.eos_token
     dataset = load_dataset('cnn_dailymail', "3.0.0")
-    cur_data = dataset[split]
+    cur_data = dataset[split][:100000]
     articles = cur_data['article']
-
+    ids = cur_data['id']
 #    if os.path.exists(path):
 #        return json.load(open(path, 'r')), cur_data['id']
 
     all_sentences = [sent_tokenize(inp) for inp in articles]
     all_sentences = [x[:60] for x in all_sentences]
-    data = []
-
+    
+    tensor_map = {}
+    print("Start")
     for i, sents in enumerate(tqdm(all_sentences)):
         suffix = f" {EOS_TOKEN} {articles[i]}"
         tmp = [x + suffix for x in sents]
@@ -68,10 +69,12 @@ def create_dataset(split="train"):
 
             sentence_mask.append(s_mask)
         model_input['sentence_mask'] = sentence_mask
-        data.append(model_input)
-
+        inp = {key: torch.tensor(val) for key, val in model_input.items()}
+        with torch.no_grad():
+            tensor_map[ids[i]] = model(**inp).tolist()
+    torch.save(tensor_map, 'data/train_pmi.pt')
 #    json.dump(data, open(path, 'w'))
-    return data, cur_data['id']
+
 
 def extraction_performance():
     preds = torch.load('data/val_pmi.pt')
@@ -97,14 +100,14 @@ def main():
     model.eval()
     print('Training:',model.training)
 
-    tensor_map = {}
-    dataset, ids = create_dataset('validation')
-    for i, x in enumerate(tqdm(dataset)):
-        inp = {key: torch.tensor(val).cuda() for key, val in x.items()}
-        with torch.no_grad():
-            tensor_map[ids[i]] = model(**inp).tolist()
+    #tensor_map = {}
+    create_dataset(model, 'train')
+   # for i, x in enumerate(tqdm(dataset)):
+   #     inp = {key: torch.tensor(val).cuda() for key, val in x.items()}
+   #     with torch.no_grad():
+  #          tensor_map[ids[i]] = model(**inp).tolist()
 
-    torch.save(tensor_map, 'data/val_pmi.pt')
+    #torch.save(tensor_map, 'data/train_pmi.pt')
 
 
     #print(dataset[0])
@@ -113,8 +116,8 @@ def main():
 
 
 if __name__ == "__main__":
-#    main()
-    extraction_performance()
+    main()
+#    extraction_performance()
 
 
 

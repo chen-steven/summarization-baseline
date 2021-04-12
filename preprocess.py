@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datasets import load_dataset
 from nltk import sent_tokenize
 from rouge_score import rouge_scorer
+import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizerBase, PreTrainedModel, AutoConfig
 import json
@@ -71,7 +72,7 @@ class DataCollatorForExtractorAbstractor:
                 )
 
         max_sentence_indicator_length = max(len(l) for l in sentence_indicators)
-        max_sentences = max(max(l) for l in sentence_indicators)
+        max_sentences = max(max(l) for l in sentence_indicators)+1
         for feature in features:
             remainder = [feature['sentence_indicator'][-1]]*(max_sentence_indicator_length - len(feature['sentence_indicator']))
             feature['sentence_indicator'] = feature['sentence_indicator'] + remainder
@@ -254,7 +255,7 @@ def _preprocess_denoise_train(examples, tokenizer, max_length, article_column):
 
 #    noisy_text = pickle.load(open('train_noise_data.pkl', 'rb'))
     paraphrased_text = pickle.load(open('data_augmentation/ppdb_paraphrase.pkl', 'rb'))
-    pmi_features = torch.load('data/train_pmi.pt')
+    processed_pmi_features = torch.load('data/train_pmi.pt')
     noisy_text_sentences = []
     clean_text_sentences = []
     pmi_features = []
@@ -267,7 +268,7 @@ def _preprocess_denoise_train(examples, tokenizer, max_length, article_column):
        
         clean_text_sentences.append(clean_sentences)
         noisy_text_sentences.append(noisy_sentences)
-        pmi_features.append(pmi_features[_id])
+        pmi_features.append(processed_pmi_features[_id])
 
     sep_token = "</s>"
     sep_token_id = 1
@@ -335,6 +336,9 @@ def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length,
     sentence_label_map = json.load(open(os.path.join("data", 'val_sentence_labels.json'), 'r'))
     sentence_labels = [sentence_label_map[i] for i in ids]
 
+    processed_pmi_features = torch.load('data/val_pmi.pt')
+    pmi_features = [processed_pmi_features[i] for i in ids]
+
     #creates sentence indicator AND update sentence_labels inplace (ensures labels are within sentence count)
     sentence_indicator = _create_sentence_indicator(model_inputs['input_ids'], tokenizer, sep_token_id, sentence_labels) 
 
@@ -346,6 +350,7 @@ def _preprocess_denoise_eval(examples, tokenizer, max_length, max_target_length,
     ]
     
     model_inputs["labels"] = labels["input_ids"]
+    model_inputs['pmi_features'] = pmi_features
     model_inputs["real_input_ids"] = model_inputs["input_ids"]
     model_inputs['sentence_indicator'] = sentence_indicator
     model_inputs['sentence_labels'] = sentence_labels

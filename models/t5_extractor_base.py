@@ -50,7 +50,7 @@ class T5ExtractorEncoder(nn.Module):
 
         return sentence_logits, new_embedding, new_len, sentence_mask, one_hot.squeeze(-1)
 
-    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels, two_selections=False):
+    def selection_loop(self, hidden_states, sentence_indicator, sentence_labels, pmi_features=None, two_selections=False):
         all_sentence_logits = []
         sentences = []
         sentence_lens = []
@@ -64,6 +64,12 @@ class T5ExtractorEncoder(nn.Module):
         sentences = torch.stack(sentences, dim=1)
         sentence_lens = torch.stack(sentence_lens, dim=1)
         sentence_lens = sentence_lens.clamp(min=1)
+
+        if self.config.use_pmi and pmi_features is not None:
+            pmi_features = pmi_features[:, :sentence_indicator.max()+1].unsqueeze(-1)
+
+            sentences = torch.cat((sentences, pmi_features), dim=-1)
+        
         #        zero_len_mask = sentence_lens == 0
         #        sentence_lens = sentence_lens + zero_len_mask.float()
 
@@ -121,6 +127,7 @@ class T5ExtractorEncoder(nn.Module):
             input_ids=None,
             attention_mask=None,
             sentence_indicator=None,
+            pmi_features=None,
             sentence_labels=None,
             encoder_hidden_states=None,
             encoder_attention_mask=None,
@@ -151,7 +158,7 @@ class T5ExtractorEncoder(nn.Module):
         hidden_states = outputs[0]
 
         if self.config.sequential_extraction:
-            gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels)
+            gumbel_output, all_sentence_logits = self.selection_loop(hidden_states, sentence_indicator, sentence_labels, pmi_features=pmi_features)
         else:
             gumbel_output, sentence_logits = self.single_extraction(hidden_states, sentence_indicator, sentence_labels)
 

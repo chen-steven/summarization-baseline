@@ -61,8 +61,9 @@ class UnsupervisedDenoiseT5(T5ForConditionalGeneration):
         sentence_lens = torch.stack(sentence_lens, dim=1)
         sentence_lens = sentence_lens.clamp(min=1)
 
-        if pmi_features is not None:
-            pmi_features = pmi_features[:, :sentence_indicator.max()]
+        if self.config.use_pmi and pmi_features is not None:
+            pmi_features = pmi_features[:, :sentence_indicator.max()+1].unsqueeze(-1)
+
             sentences = torch.cat((sentences, pmi_features), dim=-1)
         #        zero_len_mask = sentence_lens == 0
         #        sentence_lens = sentence_lens + zero_len_mask.float()

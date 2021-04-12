@@ -52,6 +52,7 @@ class ExtractorAbstractorTrainer(Seq2SeqTrainer):
             "decoder_real_input_ids": inputs['input_ids'],
             "decoder_sentence_labels": inputs['sentence_labels'],
             "sentence_indicator": inputs['sentence_indicator'],
+            "pmi_features": inputs['pmi_features'],
             "max_length": 200, #self._max_length if self._max_length is not None else self.model.config.max_length,
             "num_beams": self._num_beams if self._num_beams is not None else self.model.config.num_beams,
             "min_length": 30,
