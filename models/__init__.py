@@ -4,3 +4,4 @@ from .unsupervised_extractor_baseline import UnsupervisedExtractorBaseline
 from .unsupervised_paraphrase import UnsupervisedExtractorParaphrase
 from .unsupervised_denoise import UnsupervisedDenoiseT5
 from .unsupervised_check import UnsupervisedCheck
+from .mean_sum import MeanSumT5
