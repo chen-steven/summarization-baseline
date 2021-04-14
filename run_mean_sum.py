@@ -148,7 +148,7 @@ class DataTrainingArguments:
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_source_length: Optional[int] = field(
-        default=1024,
+        default=512,
         metadata={
             "help": "The maximum total input sequence length after tokenization. Sequences longer "
             "than this will be truncated, sequences shorter will be padded."
@@ -438,7 +438,7 @@ def main():
 
     def preprocess_function(examples):
         articles = examples[text_column]
-        article_sentences = [nltk.sent_tokenize(inp)[:70] for inp in articles]
+        article_sentences = [nltk.sent_tokenize(inp) for inp in articles]
 
         sentence_input_ids = []
         sentence_attention_masks = []
@@ -447,9 +447,10 @@ def main():
             split = len(sents) // 5
             for i in range(5):
                 if i < 4:
-                    cur_sents.append(sents[i * split: (i + 1) * split])
+                    cur_sents.append(' '.join(sents[i * split: (i + 1) * split]))
                 else:
-                    cur_sents.append(sents[(i + 1) * split:])
+                    cur_sents.append(' '.join(sents[i * split:]))
+            assert(len(cur_sents) == 5)
 
             features = tokenizer(cur_sents, max_length=data_args.max_source_length, padding="max_length", truncation=True)
             sentence_input_ids.append(features['input_ids'])
@@ -554,7 +555,7 @@ def main():
 
         # Some simple post-processing
         decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
-
+        print(decoded_preds[:5])
         if metric_name == "rouge":
             result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
             # Extract a few results from ROUGE
